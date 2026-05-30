@@ -1,0 +1,1828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rez Protocol &mdash; Technical Architecture White Paper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Manrope:wght@300;400;500;600;700;800&display=swap">
+<style>
+  /* ── DESIGN TOKENS ─────────────────────────────────── */
+  :root {
+    --bg:           #050505;
+    --panel:        #111111;
+    --panel-alt:    #0d0d0d;
+    --primary:      #00f0ff;
+    --primary-dim:  #00a3ad;
+    --primary-glow: rgba(0, 240, 255, 0.18);
+    --primary-mist: rgba(0, 240, 255, 0.06);
+    --red:          #ff003c;
+    --red-dim:      rgba(255, 0, 60, 0.15);
+    --glass-border: rgba(0, 240, 255, 0.15);
+    --glass-border-strong: rgba(0, 240, 255, 0.35);
+    --text:         #e2e8f0;
+    --text-dim:     #94a3b8;
+    --text-faint:   #475569;
+    --border:       rgba(255, 255, 255, 0.08);
+    --max-w:        900px;
+    --font-display: 'Manrope', sans-serif;
+    --font-mono:    'Space Mono', monospace;
+  }
+
+  /* ── RESET ─────────────────────────────────────────── */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 16px; scroll-behavior: smooth; }
+
+  /* ── BODY & CYBER GRID ─────────────────────────────── */
+  body {
+    font-family: var(--font-display);
+    background-color: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    min-height: 100vh;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(to right,  rgba(0,240,255,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(0,240,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+
+  /* ── LOGO / TITLE BLOCK ────────────────────────────── */
+  .title-block {
+    text-align: center;
+    padding-bottom: 3rem;
+    margin-bottom: 3rem;
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .logo-container {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+  }
+
+  .logo-container img {
+    width: 200px;
+    height: 200px;
+  }
+
+  .title-main {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.03em;
+    margin-bottom: 0.4rem;
+  }
+
+  .title-sub {
+    font-size: 0.95rem;
+    color: var(--primary-dim);
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+  }
+
+  .title-meta {
+    font-size: 0.78rem;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+  }
+
+  .title-tags {
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: 3px 12px;
+    color: var(--primary-dim);
+    background: var(--primary-mist);
+  }
+
+  /* ── TABLE OF CONTENTS ─────────────────────────────── */
+  .toc {
+    background: var(--panel-alt);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 3rem;
+  }
+  .toc-title {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 0.8rem;
+  }
+  .toc ol {
+    list-style: none;
+    counter-reset: toc;
+  }
+  .toc > ol > li {
+    counter-increment: toc;
+    margin-bottom: 0.25rem;
+  }
+  .toc > ol > li::before {
+    content: counter(toc, decimal-leading-zero) " ";
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--primary-dim);
+    margin-right: 0.4rem;
+  }
+  .toc a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.92rem;
+    transition: color 0.2s;
+  }
+  .toc a:hover { color: var(--primary); }
+
+  /* ── HEADINGS ───────────────────────────────────────── */
+  h2 {
+    font-family: var(--font-mono);
+    font-size: 1.3rem;
+    letter-spacing: 0.05em;
+    color: var(--primary);
+    margin-top: 3.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-top: 2rem;
+    margin-bottom: 0.6rem;
+    color: #fff;
+  }
+  h4 {
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+  }
+
+  /* ── PROSE ──────────────────────────────────────────── */
+  p { margin-bottom: 1rem; }
+  strong { color: #fff; }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.82em;
+    background: rgba(0,240,255,0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--primary);
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin-bottom: 1.2rem;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
+  /* ── LISTS ──────────────────────────────────────────── */
+  ul, ol {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+  }
+  li { margin-bottom: 0.3rem; }
+  li::marker { color: var(--primary-dim); }
+
+  /* ── TABLES ─────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    font-size: 0.88rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+    background: var(--panel-alt);
+  }
+  tr:hover td { background: var(--primary-mist); }
+
+  /* ── CALLOUTS ───────────────────────────────────────── */
+  .callout {
+    border-left: 3px solid var(--primary);
+    background: var(--panel);
+    padding: 1rem 1.2rem;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 1.2rem;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .callout-warn {
+    border-left-color: #f59e0b;
+  }
+
+  /* ── DIAGRAMS ───────────────────────────────────────── */
+  .diagram {
+    background: var(--panel-alt);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+  .diagram-caption {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-faint);
+    text-align: center;
+    margin-top: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* ── SVG DIAGRAMS ───────────────────────────────────── */
+  .svg-diagram {
+    background: var(--panel-alt);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .svg-diagram svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .svg-diagram .diagram-caption {
+    margin-top: 1rem;
+  }
+
+  /* ── FUTURE ITEMS ───────────────────────────────────── */
+  .future-item {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    padding: 0.8rem 1rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .future-badge {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+  .badge-planned {
+    color: #10b981;
+    background: rgba(16,185,129,0.12);
+    border: 1px solid rgba(16,185,129,0.3);
+  }
+  .badge-future {
+    color: #a78bfa;
+    background: rgba(167,139,250,0.12);
+    border: 1px solid rgba(167,139,250,0.3);
+  }
+
+  /* ── FOOTER ─────────────────────────────────────────── */
+  .footer {
+    text-align: center;
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--glass-border);
+  }
+  .footer p {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-faint);
+    letter-spacing: 0.15em;
+  }
+  .footer-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--primary);
+    letter-spacing: 0.12em;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+
+  /* ── STEP BOXES ─────────────────────────────────────── */
+  .step-flow {
+    display: grid;
+    gap: 0.6rem;
+    margin: 1rem 0 1.5rem;
+  }
+  .step-box {
+    background: var(--panel);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 0.7rem 1rem;
+    display: flex;
+    gap: 0.8rem;
+    align-items: flex-start;
+  }
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--primary);
+    font-weight: 700;
+    min-width: 1.5rem;
+    flex-shrink: 0;
+  }
+  .step-body {
+    font-size: 0.9rem;
+  }
+
+  /* ── COMPARISON CHECKMARKS ──────────────────────────── */
+  .yes { color: #10b981; }
+  .no  { color: #ef4444; }
+  .partial { color: #f59e0b; }
+
+  /* ── PRINT ──────────────────────────────────────────── */
+  @media print {
+    body { background: white; color: #1a1a1a; }
+    body::before { display: none; }
+    h2 { color: #0891b2; }
+    code { background: #f1f5f9; color: #0e7490; }
+    pre { background: #f8fafc; border-color: #e2e8f0; }
+    pre code { color: #334155; }
+    th { background: #f1f5f9; color: #0e7490; }
+    .callout { background: #f8fafc; }
+    .diagram, .svg-diagram { background: #f8fafc; border-color: #e2e8f0; }
+    .tag { background: #f0fdfa; border-color: #99f6e4; color: #0d9488; }
+    .toc { background: #f8fafc; border-color: #e2e8f0; }
+    .title-rez { text-shadow: none; color: #0e7490; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ═══ TITLE ════════════════════════════════════════════════════════════════ -->
+<div class="title-block">
+  <div class="logo-container">
+    <img src="data:image/png;base64,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" alt="Rez Protocol">
+  </div>
+  <div class="title-main">Technical Architecture White Paper</div>
+  <div class="title-sub">A Decentralized, End-to-End Encrypted Data Transport Protocol</div>
+  <div class="title-meta">VERSION 0.2 &mdash; MARCH 2026</div>
+  <div class="title-tags">
+    <span class="tag">Ed25519</span>
+    <span class="tag">X25519</span>
+    <span class="tag">AES-256-GCM</span>
+    <span class="tag">X3DH</span>
+    <span class="tag">Double Ratchet</span>
+    <span class="tag">Onion Routing</span>
+    <span class="tag">Decentralized Mesh</span>
+    <span class="tag">Data Transport</span>
+  </div>
+</div>
+
+<!-- ═══ TABLE OF CONTENTS ═══════════════════════════════════════════════════ -->
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#s1">Introduction &amp; Design Principles</a></li>
+    <li><a href="#s2">System Architecture</a></li>
+    <li><a href="#s3">Identity &amp; Key Management</a></li>
+    <li><a href="#s4">End-to-End Encryption</a></li>
+    <li><a href="#s5">Onion Routing</a></li>
+    <li><a href="#s6">Relay Mesh Network</a></li>
+    <li><a href="#s7">Inbox Discovery &amp; Data Routing</a></li>
+    <li><a href="#s8">Routing Examples</a></li>
+    <li><a href="#s9">Client Architecture</a></li>
+    <li><a href="#s10">File Transfer</a></li>
+    <li><a href="#s11">Encrypted Storage at Rest</a></li>
+    <li><a href="#s12">Data Model &amp; Backup</a></li>
+    <li><a href="#s13">Applications on Rez</a></li>
+    <li><a href="#s14">Security Analysis</a></li>
+    <li><a href="#s15">Comparison with Other Systems</a></li>
+    <li><a href="#s16">Cryptographic Reference</a></li>
+    <li><a href="#s17">Future Work</a></li>
+  </ol>
+</nav>
+
+<!-- ═══ SECTION 1 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s1">1. Introduction &amp; Design Principles</h2>
+
+<p>
+  Rez is a <strong>general-purpose, end-to-end encrypted data transport protocol</strong>
+  built on a decentralized relay mesh with multi-hop onion routing. It provides a substrate
+  for any application that needs to move data privately between parties &mdash; without
+  reliance on a central authority, phone number, or identity provider.
+</p>
+<p>
+  The protocol is payload-agnostic. Any data that can be serialized into bytes &mdash; text messages,
+  voice frames, video streams, file chunks, web pages, database replicas, IoT telemetry &mdash;
+  can be encrypted, onion-routed, and delivered through the Rez network. The protocol layer
+  provides identity, encryption, routing, and store-and-forward delivery. Applications built
+  on top define what that data means.
+</p>
+<p>
+  <strong>Rez Chat</strong>, the first application built on the protocol, demonstrates the
+  full stack: real-time encrypted messaging with contacts, groups, file transfer, and
+  encrypted backup. But the protocol is designed to support a much broader class of
+  applications, including private/anonymous websites, encrypted voice and video communication,
+  distributed encrypted file backup, and any scenario where data must move between parties
+  without trusting the infrastructure in between.
+</p>
+
+<div class="callout">
+  <p><strong>Protocol vs. Application.</strong> This white paper describes the Rez <em>protocol</em>
+  &mdash; the transport, encryption, routing, and identity layers. Where application-specific
+  features are discussed (messaging, threads, groups), they serve as concrete examples of how
+  the protocol is used, not as the protocol's boundaries.</p>
+</div>
+
+<h3>Core Design Principles</h3>
+<ul>
+  <li><strong>Payload-agnostic transport.</strong> The protocol encrypts and routes arbitrary byte payloads. Applications define semantics.</li>
+  <li><strong>Zero trust.</strong> All data is opaque ciphertext to relay operators. Keys never leave the client device.</li>
+  <li><strong>Self-sovereign identity.</strong> Accounts are Ed25519 keypairs. No phone numbers, emails, or registration servers.</li>
+  <li><strong>Decentralized relay mesh.</strong> Any participant can run a relay node. The network has no single point of failure.</li>
+  <li><strong>Metadata privacy.</strong> Onion routing prevents any single relay from correlating sender and recipient.</li>
+  <li><strong>Forward secrecy &amp; break-in recovery.</strong> The Double Ratchet protocol ensures that compromise of current keys cannot decrypt past or future messages.</li>
+  <li><strong>Async delivery.</strong> Store-and-forward inboxes ensure data is delivered even when recipients are offline.</li>
+</ul>
+
+<!-- ═══ SECTION 2 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s2">2. System Architecture</h2>
+
+<h3>2.1 Package Structure</h3>
+<table>
+  <tr><th>Package</th><th>Responsibility</th><th>Trust Boundary</th></tr>
+  <tr><td><code>rez-core</code></td><td>Cryptographic primitives, identity, codec, wire types</td><td>Shared &mdash; no network, no storage I/O</td></tr>
+  <tr><td><code>rez-node</code></td><td>Relay runtime, mesh networking, protocol handlers, storage</td><td>Server &mdash; untrusted by clients</td></tr>
+  <tr><td><code>rez-sdk</code></td><td>Client SDK, transport, session management, E2EE</td><td>Client &mdash; key material lives here</td></tr>
+  <tr><td><code>rez-ui</code></td><td>Reusable UI components, theme, DOM utilities</td><td>Presentation &mdash; no protocol knowledge</td></tr>
+  <tr><td><code>rez-chat</code></td><td>First application: encrypted messaging, contacts, groups</td><td>App &mdash; composes SDK + UI</td></tr>
+</table>
+
+<h3>2.2 Data Flow</h3>
+<div class="diagram">
+<pre><code>  Application (rez-chat, or any app built on rez-sdk)
+    &darr;
+  [rez-sdk]   &mdash; E2EE encrypt arbitrary payload, session management
+    &darr;
+  [rez-node]  &mdash; Onion-wrap, relay mesh routing
+    &darr;
+  [Relay 1]   &mdash; Peel layer, forward to next hop
+    &darr;
+  [Relay 2]   &mdash; Peel layer, forward to next hop
+    &darr;
+  [Relay 3]   &mdash; Peel final layer, deposit to inbox
+    &darr;
+  [Recipient rez-node] &mdash; Retrieve from inbox
+    &darr;
+  [Recipient rez-sdk]  &mdash; E2EE decrypt payload
+    &darr;
+  Recipient Application</code></pre>
+  <div class="diagram-caption">Figure 1 &mdash; End-to-end data flow through the Rez protocol stack</div>
+</div>
+
+<h3>2.3 Layered Responsibilities</h3>
+<p>
+  Rez enforces strict separation between the protocol and application layers. The protocol
+  (<code>rez-core</code> + <code>rez-node</code> + <code>rez-sdk</code>) handles identity,
+  encryption, routing, and delivery of opaque byte payloads. It has no concept of "messages",
+  "threads", or "contacts" &mdash; those are application-level abstractions built on top by
+  <code>rez-chat</code> or any other application.
+</p>
+<p>
+  The client SDK (<code>rez-sdk</code>) performs all encryption and decryption using keys
+  that never leave the client. The relay layer (<code>rez-node</code>) handles routing,
+  store-and-forward, and mesh coordination but only ever processes opaque ciphertext.
+  The cryptographic primitives in <code>rez-core</code> are platform-agnostic, with concrete
+  implementations for both Node.js (<code>NodeCryptoProvider</code>) and browser
+  (<code>BrowserCryptoProvider</code> using WebCrypto Subtle API).
+</p>
+
+<!-- ═══ SECTION 3 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s3">3. Identity &amp; Key Management</h2>
+
+<h3>3.1 Key Generation &amp; Account Derivation</h3>
+<p>
+  Every Rez identity is an <strong>Ed25519 signing keypair</strong> generated locally on the
+  user's device. There is no registration server, no phone number binding, and no identity
+  provider. The keypair is the account.
+</p>
+<p>
+  From the Ed25519 public key, Rez derives a deterministic <strong>Account ID</strong>:
+</p>
+<pre><code>AccountID = "rez:acct:" + base32(SHA-256(publicKeyBytes))</code></pre>
+<p>
+  This produces a human-readable, collision-resistant identifier like
+  <code>rez:acct:5k4r7xw...</code> that uniquely identifies the account without revealing
+  the public key directly.
+</p>
+<p>
+  For Diffie-Hellman key exchange, Rez uses <strong>X25519</strong> keypairs. These are
+  generated on demand for X3DH handshakes, Double Ratchet DH steps, and onion layer encryption.
+  Every DH operation uses ephemeral keys that are discarded after use, providing forward secrecy.
+</p>
+
+<h3>3.2 Keystore Encryption</h3>
+<p>
+  Private keys are encrypted at rest in a <strong>keystore</strong> protected by a user-chosen
+  password. Rez supports two key derivation functions for password stretching:
+</p>
+<table>
+  <tr><th>KDF</th><th>Parameters</th><th>Environment</th></tr>
+  <tr><td><code>PBKDF2-SHA256</code></td><td>210,000 iterations, 32-byte output</td><td>Default (all platforms)</td></tr>
+  <tr><td><code>scrypt</code></td><td>N=2<sup>17</sup>, r=8, p=1, 32-byte output</td><td>Electron desktop (optional)</td></tr>
+</table>
+<p>
+  The derived 32-byte key encrypts the keystore contents with <strong>AES-256-GCM</strong>
+  using a random 12-byte IV. The encrypted keystore envelope includes the KDF parameters,
+  salt, and version, allowing future algorithm upgrades without breaking existing keystores.
+</p>
+<div class="callout">
+  <p><strong>Password buffer zeroing.</strong> After key derivation, the password buffer is
+  immediately zeroed in memory to minimize the window of exposure.</p>
+</div>
+
+<h3>3.3 Crypto Provider Abstraction</h3>
+<p>
+  All cryptographic operations are mediated through an abstract <code>RCryptoProvider</code>
+  interface with methods for random byte generation, SHA-256 hashing, HKDF-SHA256 key derivation,
+  AES-256-GCM AEAD, Ed25519 signing/verification, and X25519 DH. Concrete implementations:
+</p>
+<ul>
+  <li><strong><code>NodeCryptoProvider</code></strong> &mdash; Uses Node.js <code>node:crypto</code> module</li>
+  <li><strong><code>BrowserCryptoProvider</code></strong> &mdash; Uses WebCrypto Subtle API (Chrome 113+, Firefox 128+, Safari 17.4+)</li>
+</ul>
+
+<!-- ═══ SECTION 4 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s4">4. End-to-End Encryption</h2>
+
+<h3>4.1 X3DH Key Agreement</h3>
+<p>
+  Rez establishes pairwise encrypted sessions using the <strong>Extended Triple Diffie-Hellman</strong>
+  (X3DH) protocol, adapted from the Signal Protocol specification. X3DH allows two parties to
+  derive a shared secret even when the responder is offline, using pre-published key material.
+</p>
+
+<h4>Pre-Key Bundle</h4>
+<p>
+  Each user publishes an <code>X3DHPreKeyBundle</code> containing:
+</p>
+<ul>
+  <li><strong>Identity signing public key</strong> (Ed25519) &mdash; long-term identity</li>
+  <li><strong>Identity-DH public key</strong> (X25519) &mdash; long-term DH key, signed by the identity key; participates in the initiator's <code>DH1</code> binding so the responder's identity is cryptographically tied to the shared secret</li>
+  <li><strong>Signed pre-key</strong> (X25519) &mdash; medium-term DH key, signed by the identity key</li>
+  <li><strong>Signed pre-key signature</strong> &mdash; Ed25519 signature proving ownership of the signed pre-key</li>
+  <li><strong>One-time pre-key</strong> (X25519, optional) &mdash; single-use key for additional forward secrecy</li>
+</ul>
+
+<h4>Initiator Flow</h4>
+<div class="step-flow">
+  <div class="step-box">
+    <span class="step-num">01</span>
+    <span class="step-body">Fetch the responder's pre-key bundle</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">02</span>
+    <span class="step-body">Verify the signed pre-key signature using the responder's identity key</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">03</span>
+    <span class="step-body">Generate an ephemeral X25519 keypair</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">04</span>
+    <span class="step-body">Compute four DH exchanges:
+      <code>DH1 = DH(initiator.identityDH, responder.signedPreKey)</code>,
+      <code>DH2 = DH(initiator.ephemeral, responder.identityDH)</code>,
+      <code>DH3 = DH(initiator.ephemeral, responder.signedPreKey)</code>,
+      and optionally <code>DH4 = DH(initiator.ephemeral, responder.oneTimePreKey)</code>.
+      <code>DH1</code> and <code>DH2</code> bind both parties' long-term identity keys
+      to the shared secret, preventing prekey-substitution impersonation.</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">05</span>
+    <span class="step-body">Derive shared secret: <code>HKDF-SHA256(DH1 || DH2 || DH3 [|| DH4], info="rez-x3dh-v2")</code></span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">06</span>
+    <span class="step-body">Sign the canonical handshake envelope with the initiator's Ed25519 identity key.
+      The responder verifies this signature (and the responder's own signed-prekey and identity-DH signatures)
+      <em>before</em> any state mutation, deriving the remote identity from the verified pubkey rather than
+      trusting a self-asserted sender ID on the wire.</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">07</span>
+    <span class="step-body">Initialize the Double Ratchet with the shared secret</span>
+  </div>
+</div>
+
+<h4>Session ID</h4>
+<p>
+  Each session is identified by <code>SHA-256(sharedSecret)</code>, a 32-byte value that
+  both parties can independently compute. This session ID appears in ratchet headers to
+  allow the recipient to select the correct decryption session.
+</p>
+
+<h3>4.2 Double Ratchet</h3>
+<p>
+  Once the X3DH shared secret is established, Rez uses the <strong>Double Ratchet</strong>
+  algorithm for ongoing payload encryption. The protocol combines two interlocking mechanisms:
+</p>
+
+<h4>Symmetric Ratchet (KDF Chain)</h4>
+<p>
+  Each message advances a <strong>chain key</strong> via HKDF:
+</p>
+<pre><code>deriveMessageKey(crypto, chainKey):
+  output = HKDF-SHA256(
+    IKM:  chainKey,
+    salt: empty,
+    info: "rez-ratchet-chain-v1",
+    len:  64 bytes
+  )
+  messageKey  = output[0..31]   // 32 bytes
+  nextChainKey = output[32..63]  // 32 bytes</code></pre>
+<p>
+  Each derived <code>messageKey</code> encrypts exactly one payload, then is discarded.
+  The <code>nextChainKey</code> replaces the current chain key. Old chain keys cannot be
+  recovered from the current state, providing <strong>forward secrecy</strong>.
+</p>
+
+<h4>Diffie-Hellman Ratchet</h4>
+<p>
+  When a party sends a new payload, they may include a fresh X25519 public key. The
+  recipient performs a DH exchange to derive new root key material, which reseeds the
+  chain keys:
+</p>
+<pre><code>deriveRootKey(crypto, rootKey, dhSecret):
+  output = HKDF-SHA256(
+    IKM:  dhSecret,
+    salt: rootKey,
+    info: "rez-ratchet-root-v1",
+    len:  96 bytes
+  )
+  newRootKey       = output[0..31]   // 32 bytes
+  sendingChainKey  = output[32..63]  // 32 bytes
+  receivingChainKey = output[64..95]  // 32 bytes</code></pre>
+<p>
+  This DH ratchet step provides <strong>break-in recovery</strong> (also called
+  post-compromise security): even if an attacker obtains current key material, they
+  cannot decrypt payloads sent after the next DH ratchet step.
+</p>
+
+<h4>Message Key &rarr; AEAD</h4>
+<p>
+  Each message key is expanded into an AES-256-GCM key and nonce:
+</p>
+<pre><code>deriveAeadKeyNonceV1(crypto, messageKey, sid, pn, n, dh):
+  HKDF-SHA256(
+    IKM:  messageKey,
+    salt: empty,
+    info: "rez-aead-v1",
+    len:  44 bytes
+  )
+  aeadKey = output[0..31]   // 32 bytes
+  nonce   = output[32..43]  // 12 bytes</code></pre>
+
+<h3>4.3 Encrypted Envelope Wire Format</h3>
+<p>
+  Each encrypted payload is serialized as an <code>EncryptedEnvelopeV1</code>:
+</p>
+<pre><code>{
+  "v": 1,
+  "suite": "HKDF-SHA256/AES-256-GCM",
+  "header": {
+    "v": 1,
+    "sid": "&lt;32-byte session ID, base64&gt;",
+    "dh":  "&lt;X25519 public key bytes, base64&gt;",  // null if no DH ratchet
+    "dhAlg": "X25519",
+    "dhFmt": "raw",
+    "pn": 5,     // previous chain length
+    "n":  0      // message index in current chain
+  },
+  "nonce": "&lt;12-byte IV, base64&gt;",
+  "ct":    "&lt;ciphertext + 16-byte GCM tag, base64&gt;"
+}</code></pre>
+<p>
+  The <code>header</code> is sent in plaintext (it contains no secret material) and allows
+  the recipient to advance their ratchet state to the correct position before attempting
+  decryption. Skipped keys are cached for out-of-order delivery.
+</p>
+
+<!-- ═══ SECTION 5 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s5">5. Onion Routing</h2>
+
+<p>
+  While E2EE protects <em>content</em>, it does not hide <em>who is communicating with whom</em>.
+  Rez addresses this with multi-hop <strong>onion routing</strong>, inspired by Tor but
+  purpose-built for asynchronous data transport rather than real-time streaming.
+</p>
+
+<h3>5.1 Path Construction</h3>
+<p>
+  The sender's node selects 1&ndash;3 relay hops from the known relay pool using the
+  <code>GatewayRelaySelector</code>. Relays are chosen uniformly at random from the set
+  of eligible relays (those with valid, non-expired onion keys and reachable TCP endpoints).
+  The <strong>entry relay</strong> knows the sender but not the recipient. The
+  <strong>delivery relay</strong> knows the recipient's inbox but not the sender.
+  Any <strong>intermediate relays</strong> know neither.
+</p>
+
+<div class="svg-diagram">
+  <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+    <!-- Nodes -->
+    <rect x="10" y="70" width="100" height="60" rx="8" fill="#111" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="60" y="105" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="13">Sender</text>
+
+    <rect x="160" y="70" width="100" height="60" rx="8" fill="#111" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="210" y="98" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="11">Entry</text>
+    <text x="210" y="115" text-anchor="middle" fill="#94a3b8" font-family="Manrope" font-size="10">knows sender</text>
+
+    <rect x="310" y="70" width="100" height="60" rx="8" fill="#111" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="360" y="98" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="11">Intermediate</text>
+    <text x="360" y="115" text-anchor="middle" fill="#94a3b8" font-family="Manrope" font-size="10">knows neither</text>
+
+    <rect x="460" y="70" width="100" height="60" rx="8" fill="#111" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="510" y="98" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="11">Delivery</text>
+    <text x="510" y="115" text-anchor="middle" fill="#94a3b8" font-family="Manrope" font-size="10">knows recipient</text>
+
+    <rect x="610" y="70" width="80" height="60" rx="8" fill="#111" stroke="#ff003c" stroke-width="1.5"/>
+    <text x="650" y="105" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="13">Inbox</text>
+
+    <!-- Arrows -->
+    <line x1="110" y1="100" x2="155" y2="100" stroke="#00f0ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="260" y1="100" x2="305" y2="100" stroke="#00a3ad" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="410" y1="100" x2="455" y2="100" stroke="#00f0ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="560" y1="100" x2="605" y2="100" stroke="#ff003c" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+    <!-- Labels above arrows -->
+    <text x="133" y="60" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Layer 1</text>
+    <text x="283" y="60" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Layer 2</text>
+    <text x="433" y="60" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Layer 3</text>
+    <text x="583" y="60" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Plaintext</text>
+
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#00f0ff"/>
+      </marker>
+      <marker id="arrow2" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#ff003c"/>
+      </marker>
+    </defs>
+  </svg>
+  <div class="diagram-caption">Figure 2 &mdash; Three-hop onion routing path</div>
+</div>
+
+<h3>5.2 Packet Encoding (Backward Layering)</h3>
+<p>
+  Onion packets are constructed from the <strong>innermost layer outward</strong>. Starting
+  with the plaintext payload, each hop's layer is encrypted in reverse order:
+</p>
+<div class="step-flow">
+  <div class="step-box">
+    <span class="step-num">01</span>
+    <span class="step-body">Start with <code>blob = innerBytes</code> (the E2EE-encrypted message)</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">02</span>
+    <span class="step-body">For each hop <em>i</em> from last to first:
+      <ul style="margin-top:0.3rem;margin-bottom:0">
+        <li>Generate ephemeral X25519 keypair</li>
+        <li>Compute shared secret: <code>DH(ephemeral.priv, relay[i].onionPubKey)</code></li>
+        <li>Derive AEAD key + nonce: <code>HKDF-SHA256(sharedSecret, info="rez-onion-v2" || hopIndex)</code></li>
+        <li>Build layer plaintext with routing directives (<code>next</code>, <code>ttl</code>, <code>deliver</code> at final hop)</li>
+        <li>Encrypt with AES-256-GCM, using canonical JSON of <code>{v, hopIndex, ttl, onionKeyId}</code> as AAD</li>
+        <li>Set <code>blob = cipherJSON(ephPub, ct, onionKeyId)</code></li>
+      </ul>
+    </span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">03</span>
+    <span class="step-body">Select the smallest size class that fits the blob (4KB, 8KB, 16KB, 32KB, 64KB, 128KB, or 256KB)</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">04</span>
+    <span class="step-body">Pad blob with zeros to exactly the size class boundary</span>
+  </div>
+  <div class="step-box">
+    <span class="step-num">05</span>
+    <span class="step-body">Wrap in <code>OnionPacketV2 { v: 2, sizeClass, payload }</code></span>
+  </div>
+</div>
+
+<h4>Layer Plaintext Structure</h4>
+<pre><code>{
+  "v": 2,
+  "ttl": 3,                              // decremented at each hop
+  "next": { "relayKeyId": "relay_xyz" },  // next hop's identity
+  "flags": { "dropOnFail": true },        // drop silently on routing failure
+  "inner": "&lt;base64-encoded encrypted inner blob&gt;",
+  // Final hop only:
+  "deliver": { "inboxId": "inbox:hosted:abc123" },
+  "receipt": { "inboxId": "inbox:hosted:sender_inbox" },
+  "returnPath": { ... }                   // SURB for delivery receipts
+}</code></pre>
+
+<h3>5.3 Relay-Side Peeling</h3>
+<p>
+  When a relay receives an onion packet, the <code>OnionPeelCodecV2</code> processes it:
+</p>
+<ol>
+  <li>Hash the payload to compute <code>packetIdHex = SHA-256(payload)</code></li>
+  <li>Parse the outer JSON layer to extract the cipher object (<code>ephPub</code>, <code>ct</code>, <code>onionKeyId</code>)</li>
+  <li><strong>Replay check:</strong> verify <code>packetIdHex:hopIndex:onionKeyId</code> has not been seen before (FIFO cache, max 50,000 entries)</li>
+  <li>Look up the private key for <code>onionKeyId</code> in the relay's keyring (validates timing windows and key status)</li>
+  <li>Compute shared secret from relay's private key + ephemeral public key</li>
+  <li>Derive AEAD key/nonce and decrypt with AES-256-GCM</li>
+  <li>Validate TTL &gt; 0 (drop if expired); decrement TTL by 1</li>
+  <li>If <code>deliver</code> directive present: deposit to inbox. Otherwise: forward inner blob to next hop.</li>
+</ol>
+
+<h3>5.4 Traffic Analysis Resistance</h3>
+<p>
+  All onion packets are padded to one of seven fixed <strong>size classes</strong>:
+</p>
+<table>
+  <tr><th>Size Class</th><th>Bytes</th><th>Typical Use</th></tr>
+  <tr><td>4 KB</td><td>4,096</td><td>Small payloads, control frames</td></tr>
+  <tr><td>8 KB</td><td>8,192</td><td>Text payloads, small metadata</td></tr>
+  <tr><td>16 KB</td><td>16,384</td><td>Larger payloads, invite bindings</td></tr>
+  <tr><td>32 KB</td><td>32,768</td><td>Multi-part payloads, media frames</td></tr>
+  <tr><td>64 KB</td><td>65,536</td><td>File transfer chunks</td></tr>
+  <tr><td>128 KB</td><td>131,072</td><td>Large file chunks</td></tr>
+  <tr><td>256 KB</td><td>262,144</td><td>Maximum single packet (max 1 MB total)</td></tr>
+</table>
+<p>
+  An observer sees only fixed-size packets traversing the network, making it impossible to
+  correlate packets by size as they pass between relays.
+</p>
+
+<h3>5.5 Onion Key Management</h3>
+<p>
+  Each relay maintains a <strong>keyring</strong> of X25519 onion keys with defined validity
+  windows (<code>notBefore</code>, <code>notAfter</code>) and lifecycle statuses:
+</p>
+<ul>
+  <li><strong><code>active</code></strong> &mdash; preferred for new packets</li>
+  <li><strong><code>draining</code></strong> &mdash; still valid for decryption, not used for new encryption</li>
+  <li><strong><code>revoked</code></strong> &mdash; permanently disabled</li>
+</ul>
+<p>
+  Key rotation is published via updated <code>RelayDescriptorV1</code> records. The
+  overlapping validity windows ensure packets encrypted with a recently-rotated key can
+  still be decrypted during the transition.
+</p>
+
+<!-- ═══ SECTION 6 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s6">6. Relay Mesh Network</h2>
+
+<h3>6.1 Relay Descriptors</h3>
+<p>
+  Each relay publishes a signed <strong>RelayDescriptorV1</strong> advertising its identity,
+  endpoints, onion keys, and capabilities:
+</p>
+<pre><code>{
+  "v": 1,
+  "relayKeyId": "relay_abc123",
+  "endpoints": [
+    { "host": "r1.rezprotocol.io", "port": 8443, "tls": true }
+  ],
+  "onionKeys": [
+    {
+      "v": 1,
+      "onionKeyId": "ok_20260301",
+      "publicKeyBytes": "&lt;X25519 public key, base64&gt;",
+      "format": "raw",
+      "createdAt": 1709251200000,
+      "notBefore": 1709251200000,
+      "notAfter":  1711929600000,
+      "status": "active"
+    }
+  ],
+  "expiresAt": 1711929600000,
+  "meta": {
+    "v": 1,
+    "node": { "keyId": "nk_1", "publicKeyB64": "&lt;Ed25519 pubkey&gt;" }
+  },
+  "sig": {
+    "scheme": "ed25519",
+    "keyId": "nk_1",
+    "sigB64": "&lt;signature over canonical JSON of all fields except sig&gt;"
+  }
+}</code></pre>
+
+<h3>6.2 Peer Authentication</h3>
+<p>
+  When two relays establish a TCP connection, they perform mutual <strong>challenge-response
+  authentication</strong>:
+</p>
+<ol>
+  <li><code>peer.hello</code> &mdash; connecting relay sends its node key ID and public key</li>
+  <li><code>peer.challenge</code> &mdash; receiving relay issues a 32-byte random nonce with 60-second TTL</li>
+  <li><code>peer.identify</code> &mdash; connecting relay signs the challenge payload (nonce + both key IDs) with Ed25519</li>
+  <li><code>peer.accept</code> &mdash; receiving relay verifies signature, assigns trust level</li>
+  <li><code>peer.bind</code> &mdash; both sides exchange signed relay descriptors</li>
+</ol>
+
+<div class="callout">
+  <p><strong>Single-use challenges.</strong> Each nonce is consumed on first use and tracked in a
+  consumed-challenge set with TTL-based expiry (60 seconds), preventing replay attacks.</p>
+</div>
+
+<h4>Trust Levels</h4>
+<table>
+  <tr><th>Level</th><th>Meaning</th><th>Gossip-Eligible</th></tr>
+  <tr><td><code>self</code></td><td>This node's own descriptor</td><td>Yes</td></tr>
+  <tr><td><code>config</code></td><td>Statically configured relay (seed)</td><td>Yes</td></tr>
+  <tr><td><code>verified</code></td><td>Authenticated via peer handshake</td><td>Yes</td></tr>
+  <tr><td><code>tofu</code></td><td>Trust-on-first-use (unverified)</td><td>No</td></tr>
+</table>
+
+<h3>6.3 Mesh Discovery &amp; Gossip</h3>
+<p>
+  The <code>MeshCoordinator</code> manages relay discovery and mesh health:
+</p>
+<ul>
+  <li><strong>Seeded gossip:</strong> bootstrap from configured seed directory endpoints</li>
+  <li><strong>Descriptor exchange:</strong> peers share descriptors on connection</li>
+  <li><strong>Periodic refresh:</strong> every 30 seconds, evict expired descriptors and discover new peers</li>
+  <li><strong>Peer limits:</strong> minimum 3, maximum 32 concurrent peer connections</li>
+  <li><strong>Health tracking:</strong> each peer rated as <em>healthy</em>, <em>degraded</em>, or <em>stale</em></li>
+</ul>
+
+<h3>6.4 TCP Framing</h3>
+<p>
+  Inter-relay communication uses length-prefixed TCP frames:
+</p>
+<pre><code>[4 bytes big-endian length][payload (length bytes)]
+Maximum frame size: 32 KB + 4 bytes header</code></pre>
+<p>
+  Rate limiting: 200 frames/second per relay socket. Excess frames are silently dropped.
+  Per-connection flood gating: 100 frames/second with 200 burst capacity.
+</p>
+
+<!-- ═══ SECTION 7 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s7">7. Inbox Discovery &amp; Data Routing</h2>
+
+<h3>7.1 Hosted Inbox Registry</h3>
+<p>
+  Each Rez node hosts inboxes for the accounts it serves. The <code>HostedInboxRegistry</code>
+  derives a stable, deterministic inbox ID for each account:
+</p>
+<pre><code>localInboxId = "inbox:hosted:" + sanitize(accountId)</code></pre>
+<p>
+  Inbox registrations include a signed <strong>delegation proof</strong> &mdash; the account's
+  identity key signs a statement authorizing the node to host its inbox:
+</p>
+<pre><code>{
+  "kind": "hosted-inbox-delegation",
+  "accountId": "rez:acct:...",
+  "inboxId": "inbox:hosted:...",
+  "nodeKeyId": "nk_1",
+  "nodePublicKeyB64": "...",
+  "issuedAtMs": 1709251200000,
+  "expiresAtMs": 1711929600000
+}</code></pre>
+
+<h3>7.2 Inbox Routing Table</h3>
+<p>
+  The <code>InboxRouter</code> maintains a distributed <strong>routing table</strong> mapping
+  inbox IDs to delivery targets. Each route entry specifies:
+</p>
+<ul>
+  <li><strong>Direct:</strong> inbox owner connected to this relay via socket &mdash; deliver locally</li>
+  <li><strong>Remote:</strong> inbox reachable via next-hop relay &mdash; forward via ID-based routing</li>
+</ul>
+
+<h3>7.3 Routing Control Protocol</h3>
+<table>
+  <tr><th>Control Message</th><th>Direction</th><th>Purpose</th></tr>
+  <tr><td><code>inbox.register</code></td><td>Node &rarr; Relay</td><td>Register locally-hosted inbox IDs with delegation proofs</td></tr>
+  <tr><td><code>inbox.route</code></td><td>Relay &harr; Relay</td><td>Announce reachable inbox routes with hop count</td></tr>
+  <tr><td><code>inbox.withdraw</code></td><td>Any</td><td>Withdraw routes (on disconnect or explicit removal)</td></tr>
+  <tr><td><code>inbox.query</code></td><td>Relay &rarr; Peer</td><td>Ask peers if they know a route to a specific inbox</td></tr>
+  <tr><td><code>inbox.query.reply</code></td><td>Peer &rarr; Relay</td><td>Respond with route information</td></tr>
+  <tr><td><code>inbox.deposit</code></td><td>Any</td><td>Deliver encrypted payload to inbox</td></tr>
+</table>
+
+<h3>7.4 Deposit Flow</h3>
+<p>
+  When the final relay in an onion path peels its layer and finds a <code>deliver</code>
+  directive, it processes the deposit:
+</p>
+<ol>
+  <li>Look up <code>inboxId</code> in the routing table</li>
+  <li>If <strong>direct + socket connected:</strong> send <code>inbox.deposit</code> control message to the connected node</li>
+  <li>If <strong>direct + no socket:</strong> persist to the local inbox store (store-and-forward)</li>
+  <li>If <strong>remote:</strong> forward to the next-hop relay via the peer connection</li>
+</ol>
+<p>
+  Recipients retrieve stored payloads via the <code>mailbox.list</code>, <code>mailbox.fetch</code>,
+  and <code>mailbox.ack</code> protocol commands when they reconnect.
+</p>
+
+<!-- ═══ SECTION 8 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s8">8. Routing Examples</h2>
+
+<h3>8.1 Small Network: 5 Nodes, 3 Relays</h3>
+<p>
+  Consider a small deployment where Alice and Bob each run their own nodes, connected through
+  a network of three relays (R1, R2, R3). Alice wants to send an encrypted payload to Bob.
+</p>
+
+<div class="svg-diagram">
+  <svg viewBox="0 0 750 320" xmlns="http://www.w3.org/2000/svg">
+    <!-- Alice's node -->
+    <rect x="20" y="130" width="110" height="50" rx="8" fill="#111" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="75" y="148" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="12" font-weight="700">Alice's Node</text>
+    <text x="75" y="166" text-anchor="middle" fill="#94a3b8" font-family="Space Mono" font-size="9">inbox:hosted:alice</text>
+
+    <!-- R1 -->
+    <rect x="190" y="130" width="90" height="50" rx="8" fill="#0d0d0d" stroke="#00f0ff" stroke-width="2"/>
+    <text x="235" y="150" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="12" font-weight="700">R1</text>
+    <text x="235" y="168" text-anchor="middle" fill="#475569" font-family="Manrope" font-size="9">Entry relay</text>
+
+    <!-- R2 -->
+    <rect x="340" y="50" width="90" height="50" rx="8" fill="#0d0d0d" stroke="#00a3ad" stroke-width="2"/>
+    <text x="385" y="70" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="12" font-weight="700">R2</text>
+    <text x="385" y="88" text-anchor="middle" fill="#475569" font-family="Manrope" font-size="9">Intermediate</text>
+
+    <!-- R3 -->
+    <rect x="490" y="130" width="90" height="50" rx="8" fill="#0d0d0d" stroke="#00f0ff" stroke-width="2"/>
+    <text x="535" y="150" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="12" font-weight="700">R3</text>
+    <text x="535" y="168" text-anchor="middle" fill="#475569" font-family="Manrope" font-size="9">Delivery relay</text>
+
+    <!-- Bob's node -->
+    <rect x="640" y="130" width="100" height="50" rx="8" fill="#111" stroke="#ff003c" stroke-width="1.5"/>
+    <text x="690" y="148" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="12" font-weight="700">Bob's Node</text>
+    <text x="690" y="166" text-anchor="middle" fill="#94a3b8" font-family="Space Mono" font-size="9">inbox:hosted:bob</text>
+
+    <!-- Arrows with step labels -->
+    <line x1="130" y1="155" x2="185" y2="155" stroke="#00f0ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="280" y1="145" x2="340" y2="85" stroke="#00a3ad" stroke-width="1.5" marker-end="url(#arrow3)"/>
+    <line x1="430" y1="85" x2="490" y2="145" stroke="#00f0ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="580" y1="155" x2="635" y2="155" stroke="#ff003c" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+    <!-- Step annotations -->
+    <rect x="130" y="195" width="150" height="105" rx="6" fill="#111" stroke="#00f0ff" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="140" y="213" fill="#00f0ff" font-family="Space Mono" font-size="10" font-weight="700">Step 1: R1 peels</text>
+    <text x="140" y="230" fill="#94a3b8" font-family="Manrope" font-size="10">DH(ephKey1, R1.onionPriv)</text>
+    <text x="140" y="247" fill="#94a3b8" font-family="Manrope" font-size="10">Decrypts layer 1</text>
+    <text x="140" y="264" fill="#94a3b8" font-family="Manrope" font-size="10">Reads: next = R2</text>
+    <text x="140" y="281" fill="#94a3b8" font-family="Manrope" font-size="10">Forwards inner blob</text>
+
+    <rect x="310" y="195" width="150" height="105" rx="6" fill="#111" stroke="#00a3ad" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="320" y="213" fill="#00a3ad" font-family="Space Mono" font-size="10" font-weight="700">Step 2: R2 peels</text>
+    <text x="320" y="230" fill="#94a3b8" font-family="Manrope" font-size="10">DH(ephKey2, R2.onionPriv)</text>
+    <text x="320" y="247" fill="#94a3b8" font-family="Manrope" font-size="10">Decrypts layer 2</text>
+    <text x="320" y="264" fill="#94a3b8" font-family="Manrope" font-size="10">Reads: next = R3</text>
+    <text x="320" y="281" fill="#94a3b8" font-family="Manrope" font-size="10">Forwards inner blob</text>
+
+    <rect x="490" y="195" width="170" height="105" rx="6" fill="#111" stroke="#ff003c" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="500" y="213" fill="#ff003c" font-family="Space Mono" font-size="10" font-weight="700">Step 3: R3 peels + delivers</text>
+    <text x="500" y="230" fill="#94a3b8" font-family="Manrope" font-size="10">DH(ephKey3, R3.onionPriv)</text>
+    <text x="500" y="247" fill="#94a3b8" font-family="Manrope" font-size="10">Decrypts final layer</text>
+    <text x="500" y="264" fill="#94a3b8" font-family="Manrope" font-size="10">Reads: deliver=bob_inbox</text>
+    <text x="500" y="281" fill="#94a3b8" font-family="Manrope" font-size="10">Deposits E2EE payload</text>
+
+    <defs>
+      <marker id="arrow3" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#00a3ad"/>
+      </marker>
+    </defs>
+  </svg>
+  <div class="diagram-caption">Figure 3 &mdash; Small network: Alice sends to Bob via 3-hop onion path</div>
+</div>
+
+<h4>What Each Relay Knows</h4>
+<table>
+  <tr><th>Relay</th><th>Knows Sender?</th><th>Knows Recipient?</th><th>Can Read Content?</th></tr>
+  <tr><td>R1 (Entry)</td><td class="yes">Yes (Alice's IP)</td><td class="no">No</td><td class="no">No</td></tr>
+  <tr><td>R2 (Intermediate)</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+  <tr><td>R3 (Delivery)</td><td class="no">No</td><td class="partial">Inbox ID only</td><td class="no">No</td></tr>
+</table>
+
+<h3>8.2 Large Network: 50+ Nodes, 12 Relays</h3>
+<p>
+  In a larger deployment, inbox discovery becomes more complex. Consider Carol (connected
+  to R1) trying to send a message to Dave (connected to R10), where R1 and R10 are not
+  directly peered. The route must be discovered through the mesh.
+</p>
+
+<div class="svg-diagram">
+  <svg viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg">
+    <!-- Cluster 1: Carol's region -->
+    <rect x="20" y="20" width="220" height="170" rx="10" fill="none" stroke="#00f0ff" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.3"/>
+    <text x="130" y="42" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Region A</text>
+
+    <rect x="40" y="60" width="80" height="40" rx="6" fill="#111" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="80" y="85" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="11">Carol</text>
+
+    <rect x="40" y="120" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="70" y="142" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="10">R1</text>
+
+    <rect x="130" y="120" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="160" y="142" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R2</text>
+
+    <rect x="170" y="60" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="200" y="82" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R3</text>
+
+    <!-- Cluster 2: Middle -->
+    <rect x="280" y="60" width="240" height="130" rx="10" fill="none" stroke="#00a3ad" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.3"/>
+    <text x="400" y="80" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Region B</text>
+
+    <rect x="300" y="100" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="330" y="122" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R4</text>
+
+    <rect x="390" y="100" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="420" y="122" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R5</text>
+
+    <rect x="340" y="150" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="370" y="172" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R6</text>
+
+    <rect x="440" y="150" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="470" y="172" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R7</text>
+
+    <!-- Cluster 3: Dave's region -->
+    <rect x="560" y="20" width="220" height="170" rx="10" fill="none" stroke="#ff003c" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.3"/>
+    <text x="670" y="42" text-anchor="middle" fill="#475569" font-family="Space Mono" font-size="9">Region C</text>
+
+    <rect x="580" y="120" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="610" y="142" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R8</text>
+
+    <rect x="660" y="120" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00f0ff" stroke-width="1.5"/>
+    <text x="690" y="142" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="10">R10</text>
+
+    <rect x="700" y="60" width="70" height="40" rx="6" fill="#111" stroke="#ff003c" stroke-width="1.5"/>
+    <text x="735" y="85" text-anchor="middle" fill="#e2e8f0" font-family="Manrope" font-size="11">Dave</text>
+
+    <rect x="580" y="60" width="60" height="35" rx="6" fill="#0d0d0d" stroke="#00a3ad" stroke-width="1.5"/>
+    <text x="610" y="82" text-anchor="middle" fill="#00a3ad" font-family="Space Mono" font-size="10">R9</text>
+
+    <!-- Inter-cluster connections (thin) -->
+    <line x1="100" y1="155" x2="130" y2="142" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="190" y1="138" x2="300" y2="117" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="160" y1="155" x2="300" y2="130" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="200" y1="95" x2="330" y2="100" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="360" y1="117" x2="390" y2="117" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="420" y1="135" x2="440" y2="150" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="500" y1="167" x2="580" y2="140" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="450" y1="117" x2="580" y2="117" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="640" y1="137" x2="660" y2="137" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="610" y1="95" x2="610" y2="120" stroke="#00a3ad" stroke-width="0.8" stroke-opacity="0.4"/>
+    <line x1="690" y1="120" x2="710" y2="100" stroke="#ff003c" stroke-width="0.8" stroke-opacity="0.5"/>
+
+    <!-- Carol to R1 -->
+    <line x1="80" y1="100" x2="70" y2="120" stroke="#00f0ff" stroke-width="1" stroke-opacity="0.5"/>
+
+    <!-- Route discovery flow (bottom) -->
+    <rect x="20" y="230" width="760" height="150" rx="10" fill="#0d0d0d" stroke="#00f0ff" stroke-opacity="0.2" stroke-width="1"/>
+    <text x="400" y="252" text-anchor="middle" fill="#00f0ff" font-family="Space Mono" font-size="11" font-weight="700">Inbox Discovery: 4-hop route query</text>
+
+    <text x="40" y="280" fill="#94a3b8" font-family="Space Mono" font-size="9">1. R1 queries peers:</text>
+    <text x="40" y="296" fill="#475569" font-family="Manrope" font-size="10">inbox.query { queryId, inboxIds: ["inbox:hosted:dave"] } &rarr; R2, R3</text>
+
+    <text x="40" y="320" fill="#94a3b8" font-family="Space Mono" font-size="9">2. R2 doesn't know dave &rarr; forwards query to R4. R3 forwards to R4.</text>
+    <text x="40" y="336" fill="#94a3b8" font-family="Space Mono" font-size="9">3. R4 &rarr; R5 &rarr; R7 &rarr; R8 &rarr; R10 finds route (hops=0, direct).</text>
+    <text x="40" y="352" fill="#94a3b8" font-family="Space Mono" font-size="9">4. Reply propagates back: R10 &rarr; R8 &rarr; R7 &rarr; R5 &rarr; R4 &rarr; R2 &rarr; R1 (hops=4)</text>
+    <text x="40" y="368" fill="#00f0ff" font-family="Space Mono" font-size="9">5. R1 caches route. Carol builds 3-hop onion: R3 &rarr; R5 &rarr; R8, deliver to dave_inbox via R10.</text>
+  </svg>
+  <div class="diagram-caption">Figure 4 &mdash; Large network: Multi-hop inbox discovery and onion routing</div>
+</div>
+
+<h4>Discovery vs. Delivery Paths</h4>
+<p>
+  A critical distinction: the <strong>discovery path</strong> (how the route was learned) is
+  different from the <strong>delivery path</strong> (the onion route chosen for the message).
+  Route discovery propagates through the mesh's control plane, while delivery uses a
+  freshly-selected onion path through randomly chosen relays. This prevents an adversary
+  who compromises a discovery hop from predicting the delivery route.
+</p>
+
+<h4>Scaling Properties</h4>
+<table>
+  <tr><th>Property</th><th>Small Network (5 nodes)</th><th>Large Network (50+ nodes)</th></tr>
+  <tr><td>Relay hops</td><td>1&ndash;3 (all relays reachable)</td><td>1&ndash;3 (selected from known subset)</td></tr>
+  <tr><td>Route discovery</td><td>Direct peer lookup</td><td>Multi-hop query propagation</td></tr>
+  <tr><td>Route caching</td><td>Minimal (all routes known)</td><td>Essential (routes cached with TTL)</td></tr>
+  <tr><td>Descriptor gossip</td><td>Full mesh exchange</td><td>Bounded by max 32 peers per relay</td></tr>
+  <tr><td>Convergence time</td><td>&lt; 1 second</td><td>Proportional to network diameter</td></tr>
+</table>
+
+<!-- ═══ SECTION 9 ═══════════════════════════════════════════════════════════ -->
+<h2 id="s9">9. Client Architecture</h2>
+
+<h3>9.1 Session Authentication</h3>
+<p>
+  Clients authenticate to their home node via a three-step handshake over WebSocket:
+</p>
+<ol>
+  <li><strong><code>session.hello</code></strong> &mdash; client sends account ID, identity public key, device ID, client version</li>
+  <li><strong><code>session.challenge</code></strong> &mdash; node responds with random 32-byte nonce (60s TTL), node identity, X3DH subkey</li>
+  <li><strong><code>session.authenticate</code></strong> &mdash; client proves two things:
+    <ul>
+      <li><em>Session auth signature:</em> signs the challenge nonce <em>together with the node's identity</em>
+        (its <code>nodePublicKeyB64</code> and <code>relayKeyId</code>) using the account's Ed25519 identity key.
+        Including the node identity in the signed payload prevents a cross-node MITM from replaying a challenge
+        from node&nbsp;A to node&nbsp;B and tricking the client into authenticating to the attacker's node.</li>
+      <li><em>Inbox delegation:</em> signed statement authorizing the node to host the account's inbox</li>
+    </ul>
+    Peer-link establishment (the X3DH handshake described in &sect;4.1) happens separately and is bound to
+    the initiator's long-term identity key through DH1, independent of the session-auth layer.
+  </li>
+  <li><strong><code>session.ready</code></strong> &mdash; node confirms authentication, returns session ID and local inbox ID</li>
+</ol>
+
+<h3>9.2 Uplink Pool &amp; Failover</h3>
+<p>
+  The <code>UplinkPool</code> manages WebSocket connections to one or more Rez nodes, providing
+  automatic failover and reconnection with exponential backoff. The pool abstracts
+  multi-node connectivity, allowing clients to maintain service even when individual nodes
+  are unreachable.
+</p>
+
+<h3>9.3 Wire Protocol</h3>
+<p>
+  Client-node communication uses JSON frames over WebSocket. The frame format is
+  application-agnostic &mdash; the <code>body</code> carries arbitrary payload:
+</p>
+<pre><code>{
+  "id": "message.send:1709251200000:1",  // type:timestamp:sequence
+  "t": "message.send",                    // message type
+  "v": 1,                                 // protocol version
+  "body": { ... }                          // type-specific payload
+}</code></pre>
+<p>Key frame types (protocol-level):</p>
+<table>
+  <tr><th>Type</th><th>Direction</th><th>Purpose</th></tr>
+  <tr><td><code>mailbox.deposit</code></td><td>C&rarr;N</td><td>Deposit encrypted payload to inbox</td></tr>
+  <tr><td><code>mailbox.list</code></td><td>C&rarr;N</td><td>List inbox events with cursor pagination</td></tr>
+  <tr><td><code>mailbox.fetch</code></td><td>C&rarr;N</td><td>Fetch specific inbox event</td></tr>
+  <tr><td><code>mailbox.ack</code></td><td>C&rarr;N</td><td>Acknowledge/remove event</td></tr>
+  <tr><td><code>object.publish</code></td><td>C&rarr;N</td><td>Publish an encrypted object (blob, file chunk, etc.)</td></tr>
+  <tr><td><code>object.get</code></td><td>C&rarr;N</td><td>Retrieve a published object</td></tr>
+  <tr><td><code>evt.mailbox.deposited</code></td><td>N&rarr;C</td><td>Push: new payload deposited to inbox</td></tr>
+</table>
+<p>
+  Application-level frame types (e.g., <code>message.send</code>, <code>evt.message.upsert</code>)
+  are defined by applications like Rez Chat and layered on top of these protocol primitives.
+</p>
+
+<!-- ═══ SECTION 10 ══════════════════════════════════════════════════════════ -->
+<h2 id="s10">10. File Transfer</h2>
+
+<p>
+  The protocol's file transfer system demonstrates how arbitrary binary data &mdash; not just
+  text messages &mdash; flows through the Rez transport layer. The <code>FileChunker</code>
+  splits files into chunks that are individually encrypted and routed through the onion network
+  as standard Rez payloads.
+</p>
+
+<h3>10.1 Chunking &amp; Manifest</h3>
+<pre><code>FileChunker.chunk(fileBytes, {
+  fileName: "document.pdf",
+  mimeType: "application/pdf",
+  chunkSizeBytes: 65536,  // 64 KB per chunk
+  text: "Preview text..."  // optional
+})
+// Returns: { manifest: FileManifestV1, chunks: FileChunkV1[] }</code></pre>
+
+<h4>FileManifestV1</h4>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+  <tr><td><code>transferId</code></td><td>UUID</td><td>Unique transfer identifier</td></tr>
+  <tr><td><code>fileName</code></td><td>string</td><td>Original filename</td></tr>
+  <tr><td><code>mimeType</code></td><td>string</td><td>MIME type</td></tr>
+  <tr><td><code>fileSizeBytes</code></td><td>number</td><td>Total file size</td></tr>
+  <tr><td><code>chunkSizeBytes</code></td><td>number</td><td>Size of each chunk</td></tr>
+  <tr><td><code>chunkCount</code></td><td>number</td><td>Total number of chunks</td></tr>
+  <tr><td><code>fileHashHex</code></td><td>string</td><td>SHA-256 of entire file</td></tr>
+  <tr><td><code>chunkHashesHex</code></td><td>string[]</td><td>SHA-256 of each individual chunk</td></tr>
+</table>
+
+<h3>10.2 Integrity Verification</h3>
+<p>
+  On reassembly, the recipient verifies:
+</p>
+<ol>
+  <li>Each chunk's SHA-256 hash matches the corresponding entry in <code>chunkHashesHex</code></li>
+  <li>All chunks are present (no missing indices)</li>
+  <li>The reassembled file's SHA-256 matches <code>fileHashHex</code></li>
+</ol>
+<p>
+  Any hash mismatch causes the transfer to be rejected, preventing tampering or corruption.
+</p>
+
+<!-- ═══ SECTION 11 ══════════════════════════════════════════════════════════ -->
+<h2 id="s11">11. Encrypted Storage at Rest</h2>
+
+<p>
+  All persistent data on a Rez node is encrypted at rest using <strong>AES-256-GCM</strong>.
+  The encryption key is derived from the node's Ed25519 private key, ensuring that only the
+  key holder can read stored data.
+</p>
+
+<h3>11.1 Key Derivation</h3>
+<pre><code>storageKey = HKDF-SHA256(
+  IKM:  nodePrivateKeyBytes,
+  salt: "rez:storage:encryption:v1",
+  info: "rez:kv:aes256gcm",
+  len:  32 bytes
+)</code></pre>
+
+<h3>11.2 Storage Architecture</h3>
+<p>
+  Three decorator stores provide transparent encryption over the base storage layer:
+</p>
+<table>
+  <tr><th>Decorator</th><th>Base Store</th><th>Data Type</th></tr>
+  <tr><td><code>EncryptedObjectStore</code></td><td>FsObjectStore</td><td>Published objects, blobs</td></tr>
+  <tr><td><code>EncryptedMailboxStore</code></td><td>FsMailboxStore</td><td>Inbox deposits, mailbox events</td></tr>
+  <tr><td><code>EncryptedKeyValueStore</code></td><td>FsKeyValueStore</td><td>Contacts, threads, groups, invites</td></tr>
+</table>
+
+<h3>11.3 Progressive Migration</h3>
+<p>
+  When encryption is enabled on an existing node, Rez performs <strong>progressive migration</strong>:
+  legacy plaintext data is read normally and re-encrypted on the next write. This avoids a
+  costly bulk migration and allows encryption to be enabled non-disruptively.
+</p>
+
+<div class="callout">
+  <p><strong>Bootstrap exception.</strong> Only <code>config.json</code> and the bootstrap identity
+  read are stored unencrypted &mdash; these are required to derive the encryption key itself.</p>
+</div>
+
+<!-- ═══ SECTION 12 ══════════════════════════════════════════════════════════ -->
+<h2 id="s12">12. Data Model &amp; Backup</h2>
+
+<h3>12.1 Storage Ownership</h3>
+<p>
+  Each data domain has a canonical owner package, enforcing the single-source-of-truth principle:
+</p>
+<table>
+  <tr><th>Domain</th><th>Owner</th><th>Key Pattern</th></tr>
+  <tr><td>Contacts</td><td>rez-node</td><td><code>app:chat:contacts/{owner}/{contact}</code></td></tr>
+  <tr><td>Thread index</td><td>rez-chat</td><td><code>threadId</code> (PK), ordered by <code>lastActivityAtMs</code></td></tr>
+  <tr><td>Groups</td><td>rez-node</td><td><code>app:chat:groups/{groupId}</code></td></tr>
+  <tr><td>Invites</td><td>rez-node</td><td><code>app:chat:invites/{accountId}/{inviteId}</code></td></tr>
+  <tr><td>Backup</td><td>rez-node</td><td><code>app:chat:backup/{accountHash}/checkpoint/{seq}</code></td></tr>
+</table>
+
+<h3>12.2 Encrypted Backup</h3>
+<p>
+  The backup system stores <strong>client-encrypted</strong> artifacts on the node:
+</p>
+<ul>
+  <li>Client encrypts backup data before upload &mdash; node stores opaque ciphertext only</li>
+  <li>Metadata minimization: only <code>accountHash</code>, <code>type</code>, <code>seq</code>,
+    <code>createdAtMs</code>, <code>expiresAtMs</code>, and <code>sizeClass</code> are visible</li>
+  <li>Default retention: 90 days</li>
+  <li>Restore flow: fetch checkpoint list &rarr; download latest checkpoint &rarr; fetch deltas &rarr; decrypt locally</li>
+</ul>
+
+<!-- ═══ SECTION 13 ══════════════════════════════════════════════════════════ -->
+<h2 id="s13">13. Applications on Rez</h2>
+
+<p>
+  The Rez protocol is a <strong>transport substrate</strong>, not a messaging application.
+  It provides encrypted, onion-routed, store-and-forward delivery of arbitrary byte payloads
+  between cryptographic identities. Applications built on Rez inherit all of the protocol's
+  privacy, security, and decentralization properties without reimplementing them.
+</p>
+
+<h3>13.1 Rez Chat &mdash; Encrypted Messaging (Shipped)</h3>
+<p>
+  The first application built on the protocol. Rez Chat provides real-time encrypted messaging
+  with contacts, groups, threads, channels, file transfer, link previews, and encrypted backup.
+  It demonstrates the full protocol stack:
+</p>
+<ul>
+  <li><strong>Peer linking</strong> via cryptographic invite codes carrying X3DH pre-key bundles</li>
+  <li><strong>Threads</strong> with deterministic IDs derived from participant identities</li>
+  <li><strong>Group messaging</strong> with role-based membership (admin/member) authorized by signed <code>member.join</code> operations in <code>GroupOpPayloadV1</code>, with per-member pairwise E2EE</li>
+  <li><strong>Channels</strong> &mdash; named persistent sub-conversations within groups, with per-channel read cursors and catchup</li>
+  <li><strong>File transfer</strong> via chunked, hash-verified payloads routed as standard onion packets</li>
+  <li><strong>Link previews</strong> generated client-side; the relay never sees the URL</li>
+  <li><strong>Inbox catchup</strong> &mdash; cursor-based replay of missed messages when a client reconnects after an offline period; reads buffered deposits the relay held for the user</li>
+  <li><strong>Encrypted backup</strong> where the node stores only opaque ciphertext</li>
+</ul>
+
+<h3>13.2 Private Websites &amp; Hidden Services (Planned)</h3>
+<p>
+  The onion routing layer can serve content anonymously. A Rez node hosting a website would
+  publish its inbox ID as a <strong>hidden service address</strong>. Visitors send HTTP-like
+  request payloads through the onion network; the server responds through a SURB (single-use
+  reply block) return path. Neither the visitor nor any relay learns the server's network
+  location.
+</p>
+<p>
+  Unlike Tor hidden services, Rez hidden services operate over the same relay mesh used for
+  messaging, requiring no separate circuit infrastructure. The protocol's store-and-forward
+  inboxes naturally handle request queuing, and the fixed-size packet classes prevent traffic
+  analysis of page sizes.
+</p>
+
+<h3>13.3 Encrypted Voice &amp; Video (Planned)</h3>
+<p>
+  Real-time media can be transported over Rez by treating audio/video frames as a stream of
+  encrypted payloads. The protocol's onion routing adds latency, making it best suited for
+  privacy-prioritized communication rather than low-latency conferencing. Key properties:
+</p>
+<ul>
+  <li>Each voice/video frame encrypted with the existing Double Ratchet session</li>
+  <li>Frames routed as onion packets through the relay mesh</li>
+  <li>Fixed-size packet classes prevent frame-size fingerprinting</li>
+  <li>No centralized TURN/STUN servers required &mdash; relays handle NAT traversal implicitly</li>
+</ul>
+
+<h3>13.4 Distributed Encrypted Backup (Planned)</h3>
+<p>
+  The protocol's encrypted storage and relay mesh enable a decentralized backup system.
+  Users can distribute encrypted backup shards across multiple Rez nodes, where each node
+  stores only opaque ciphertext. Key characteristics:
+</p>
+<ul>
+  <li>Backup data encrypted client-side before distribution &mdash; no node can read contents</li>
+  <li>Shards distributed across geographically diverse relay nodes for redundancy</li>
+  <li>Retrieval via onion routing preserves privacy of which backup belongs to whom</li>
+  <li>The protocol's existing integrity verification (SHA-256 per chunk) ensures shard correctness</li>
+  <li>No centralized storage provider &mdash; any Rez node operator can contribute storage</li>
+</ul>
+
+<h3>13.5 Building on the Protocol</h3>
+<p>
+  Any application can build on Rez by using the <code>rez-sdk</code> to:
+</p>
+<ol>
+  <li><strong>Generate an identity</strong> &mdash; Ed25519 keypair, no registration required</li>
+  <li><strong>Establish encrypted sessions</strong> &mdash; X3DH + Double Ratchet with any peer</li>
+  <li><strong>Send arbitrary payloads</strong> &mdash; encrypt, onion-wrap, and deposit to any inbox</li>
+  <li><strong>Receive payloads</strong> &mdash; retrieve from inbox, decrypt, process application-specific data</li>
+</ol>
+<p>
+  The protocol imposes no schema on payload contents. An application can define its own
+  frame types, serialization formats, and interaction patterns while inheriting E2EE,
+  onion routing, metadata privacy, and store-and-forward delivery from the transport layer.
+</p>
+
+<!-- ═══ SECTION 14 ══════════════════════════════════════════════════════════ -->
+<h2 id="s14">14. Security Analysis</h2>
+
+<h3>14.1 Threat Model &amp; Protocol Scope</h3>
+<table>
+  <tr><th>Adversary</th><th>Rez Mitigation</th></tr>
+  <tr><td>Network eavesdropper</td><td>TLS on transport; onion routing hides endpoints; E2EE hides content</td></tr>
+  <tr><td>Honest-but-curious node operator</td><td>All user data encrypted at rest and in transit; operator sees only ciphertext</td></tr>
+  <tr><td>Compromised relay</td><td>Onion routing: relay sees only its own layer; cannot determine full path or read content</td></tr>
+  <tr><td>Malicious relay (active)</td><td>Descriptor signatures prevent impersonation; AEAD detects tampering; replay cache prevents replay</td></tr>
+  <tr><td>Credential theft (password)</td><td>PBKDF2 with 210,000 iterations; no server-side password storage</td></tr>
+  <tr><td>Key compromise</td><td>Double Ratchet provides forward secrecy (past) and break-in recovery (future)</td></tr>
+</table>
+
+<h4>Out of scope</h4>
+<ul>
+  <li>Malware on the user's device (OS/device-level responsibility)</li>
+  <li>Global passive adversary with timing correlation (future: mix networking)</li>
+  <li>Quantum computing (future: post-quantum hybrid schemes)</li>
+</ul>
+
+<h3>14.2 Cryptographic Properties</h3>
+<table>
+  <tr><th>Property</th><th>Mechanism</th></tr>
+  <tr><td>Confidentiality</td><td>AES-256-GCM encryption of all payloads; HKDF-derived per-message keys</td></tr>
+  <tr><td>Integrity</td><td>GCM authentication tag (128-bit) on every ciphertext; AAD binds headers to payload</td></tr>
+  <tr><td>Forward secrecy</td><td>Double Ratchet: old chain keys discarded; X3DH ephemeral keys; onion ephemeral keys</td></tr>
+  <tr><td>Break-in recovery</td><td>DH ratchet step re-establishes security after compromise</td></tr>
+  <tr><td>Sender authentication</td><td>Ed25519 signatures on session establishment; AEAD binds to session identity</td></tr>
+  <tr><td>Replay prevention</td><td>Ratchet position prevents message reuse; onion replay cache (50K entries); challenge nonces consumed on use</td></tr>
+  <tr><td>Metadata privacy</td><td>Onion routing: no single relay knows both sender and recipient</td></tr>
+  <tr><td>Traffic analysis resistance</td><td>7 fixed size classes (4K&ndash;256K) with padding</td></tr>
+  <tr><td>Data-at-rest encryption</td><td>AES-256-GCM with HKDF-derived key from node identity</td></tr>
+</table>
+
+<!-- ═══ SECTION 15 ══════════════════════════════════════════════════════════ -->
+<h2 id="s15">15. Comparison with Other Systems</h2>
+
+<p>
+  The following comparison evaluates Rez as a <em>protocol</em> against other encrypted
+  communication systems. While Signal, Matrix, and Briar are primarily messaging platforms,
+  Rez is a general-purpose encrypted transport &mdash; messaging is one application built
+  on it. The comparison focuses on protocol-level properties that would apply to any
+  application built on each system.
+</p>
+
+<table>
+  <tr>
+    <th>Protocol Property</th>
+    <th>Rez Protocol</th>
+    <th>Signal</th>
+    <th>Matrix</th>
+    <th>Briar</th>
+  </tr>
+  <tr>
+    <td><strong>General-purpose transport</strong></td>
+    <td class="yes">Yes (payload-agnostic)</td>
+    <td class="no">No (messaging only)</td>
+    <td class="partial">Partial (extensible via rooms)</td>
+    <td class="no">No (messaging + forums)</td>
+  </tr>
+  <tr>
+    <td><strong>E2E encrypted (default)</strong></td>
+    <td class="yes">Yes</td>
+    <td class="yes">Yes</td>
+    <td class="partial">Optional (Megolm)</td>
+    <td class="yes">Yes</td>
+  </tr>
+  <tr>
+    <td><strong>E2EE protocol</strong></td>
+    <td>X3DH + Double Ratchet</td>
+    <td>X3DH + Double Ratchet</td>
+    <td>Olm/Megolm</td>
+    <td>Bramble Transport</td>
+  </tr>
+  <tr>
+    <td><strong>Decentralized</strong></td>
+    <td class="yes">Yes (relay mesh)</td>
+    <td class="no">No (centralized)</td>
+    <td class="partial">Federated (homeservers)</td>
+    <td class="yes">Yes (peer-to-peer)</td>
+  </tr>
+  <tr>
+    <td><strong>Onion routing</strong></td>
+    <td class="yes">Yes (multi-hop)</td>
+    <td class="no">No</td>
+    <td class="no">No</td>
+    <td class="partial">Via Tor (external)</td>
+  </tr>
+  <tr>
+    <td><strong>Server sees metadata</strong></td>
+    <td class="yes">Minimal (onion-routed, inbox ID only at delivery)</td>
+    <td class="no">Yes (sender, receiver, timestamps)</td>
+    <td class="no">Yes (room membership, message timing)</td>
+    <td class="yes">No (direct P2P or Tor)</td>
+  </tr>
+  <tr>
+    <td><strong>Self-hostable</strong></td>
+    <td class="yes">Yes</td>
+    <td class="no">No</td>
+    <td class="yes">Yes</td>
+    <td>N/A (no server)</td>
+  </tr>
+  <tr>
+    <td><strong>Forward secrecy</strong></td>
+    <td class="yes">Yes (Double Ratchet)</td>
+    <td class="yes">Yes (Double Ratchet)</td>
+    <td class="partial">Limited (Megolm session-level)</td>
+    <td class="yes">Yes</td>
+  </tr>
+  <tr>
+    <td><strong>Post-compromise security</strong></td>
+    <td class="yes">Yes (DH ratchet)</td>
+    <td class="yes">Yes (DH ratchet)</td>
+    <td class="no">No (Megolm is sender keys)</td>
+    <td class="yes">Yes</td>
+  </tr>
+  <tr>
+    <td><strong>Offline delivery</strong></td>
+    <td class="yes">Yes (store-and-forward inboxes)</td>
+    <td class="yes">Yes (server queues)</td>
+    <td class="yes">Yes (homeserver stores)</td>
+    <td class="no">No (requires both online, or mailbox plugin)</td>
+  </tr>
+  <tr>
+    <td><strong>Encrypted backup</strong></td>
+    <td class="yes">Yes (client-side encrypted)</td>
+    <td class="partial">Partial (optional)</td>
+    <td class="no">No</td>
+    <td class="no">No</td>
+  </tr>
+  <tr>
+    <td><strong>Identity model</strong></td>
+    <td>Cryptographic (self-sovereign Ed25519)</td>
+    <td>Phone number</td>
+    <td>Username@server</td>
+    <td>Cryptographic</td>
+  </tr>
+  <tr>
+    <td><strong>Encrypted storage at rest</strong></td>
+    <td class="yes">Yes (AES-256-GCM, all data)</td>
+    <td class="partial">Partial (SQLCipher on mobile)</td>
+    <td class="no">Server-dependent</td>
+    <td class="yes">Yes</td>
+  </tr>
+  <tr>
+    <td><strong>Open source</strong></td>
+    <td class="yes">Yes</td>
+    <td class="yes">Yes</td>
+    <td class="yes">Yes</td>
+    <td class="yes">Yes</td>
+  </tr>
+  <tr>
+    <td><strong>Replay protection</strong></td>
+    <td class="yes">Ratchet + onion cache (50K)</td>
+    <td class="yes">Ratchet position</td>
+    <td class="partial">Session-level</td>
+    <td class="yes">Transport-level</td>
+  </tr>
+</table>
+
+<h4>Key Differentiators</h4>
+<ul>
+  <li><strong>vs. Signal:</strong> Signal is a messaging application with a fixed feature set and
+    centralized infrastructure. Rez is a protocol &mdash; it provides the same Double Ratchet E2EE
+    but adds onion routing for metadata privacy and a decentralized relay mesh. Signal's server
+    sees who talks to whom and when. Rez's relays see only opaque onion packets. Crucially, Rez
+    can transport any payload type, not just chat messages.</li>
+  <li><strong>vs. Matrix:</strong> Matrix is a federated communication protocol, but it is tightly
+    coupled to its room/event data model. Homeservers store message history in plaintext (or
+    optionally encrypted) and see full metadata. Rez nodes store only ciphertext, use onion
+    routing for metadata privacy, and provide per-message forward secrecy via Double Ratchet
+    (vs. Matrix's session-level Megolm). Rez's transport layer is data-model agnostic.</li>
+  <li><strong>vs. Briar:</strong> Briar provides strong privacy via Tor but is tightly coupled to
+    its messaging/forum model and requires both parties to be online simultaneously (without the
+    mailbox plugin). Rez provides comparable metadata protection with the convenience of
+    store-and-forward delivery and extensibility to non-messaging applications like hidden
+    services and encrypted backup.</li>
+</ul>
+
+<!-- ═══ SECTION 16 ══════════════════════════════════════════════════════════ -->
+<h2 id="s16">16. Cryptographic Reference</h2>
+
+<table>
+  <tr><th>Algorithm</th><th>Key/Output Size</th><th>Use in Rez</th><th>Standard</th></tr>
+  <tr><td><code>Ed25519</code></td><td>256-bit keys, 512-bit sig</td><td>Identity signing, invite signing, relay descriptor signing, session auth</td><td>RFC 8032</td></tr>
+  <tr><td><code>X25519</code></td><td>256-bit</td><td>X3DH DH exchanges, Double Ratchet DH steps, onion layer ephemeral DH</td><td>RFC 7748</td></tr>
+  <tr><td><code>AES-256-GCM</code></td><td>256-bit key, 96-bit nonce, 128-bit tag</td><td>Message encryption, keystore encryption, onion layer AEAD, storage-at-rest</td><td>NIST SP 800-38D</td></tr>
+  <tr><td><code>HKDF-SHA256</code></td><td>Variable output</td><td>Ratchet chain/root KDF, AEAD key derivation, onion key derivation, storage key derivation</td><td>RFC 5869</td></tr>
+  <tr><td><code>PBKDF2-SHA256</code></td><td>256-bit output</td><td>Password-based keystore encryption (210,000 iterations)</td><td>RFC 2898</td></tr>
+  <tr><td><code>scrypt</code></td><td>256-bit output</td><td>Optional keystore KDF (N=2<sup>17</sup>, r=8, p=1)</td><td>RFC 7914</td></tr>
+  <tr><td><code>SHA-256</code></td><td>256-bit</td><td>Account ID derivation, packet ID hashing, file integrity, commitment hashes</td><td>FIPS 180-4</td></tr>
+</table>
+
+<h4>HKDF Context Labels</h4>
+<table>
+  <tr><th>Label</th><th>Output Length</th><th>Purpose</th></tr>
+  <tr><td><code>rez-x3dh-v2</code></td><td>32 bytes</td><td>X3DH shared secret derivation (binds DH1 || DH2 || DH3 [|| DH4])</td></tr>
+  <tr><td><code>rez-ratchet-root-v1</code></td><td>96 bytes</td><td>Root key &rarr; new root + sending chain + receiving chain</td></tr>
+  <tr><td><code>rez-ratchet-chain-v1</code></td><td>64 bytes</td><td>Chain key &rarr; message key + next chain key</td></tr>
+  <tr><td><code>rez-aead-v1</code></td><td>44 bytes</td><td>Message key &rarr; AES-256-GCM key + nonce</td></tr>
+  <tr><td><code>rez-onion-v2</code> + hopIndex</td><td>44 bytes</td><td>Onion shared secret &rarr; AES-256-GCM key + nonce</td></tr>
+  <tr><td><code>rez:storage:encryption:v1</code></td><td>32 bytes</td><td>Node private key &rarr; storage encryption key</td></tr>
+</table>
+
+<!-- ═══ SECTION 17 ══════════════════════════════════════════════════════════ -->
+<h2 id="s17">17. Future Work</h2>
+
+<div class="future-item">
+  <span class="future-badge badge-planned">PLANNED</span>
+  <div>
+    <strong>End-to-end delivery receipts.</strong>
+    Protocol-level confirmation from recipient to sender via SURB (single-use reply block)
+    return paths through the onion network.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-future">FUTURE</span>
+  <div>
+    <strong>Post-quantum cryptography.</strong>
+    Hybrid classical + lattice-based key exchange (e.g., ML-KEM) to protect against future
+    quantum attacks on X25519.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-future">FUTURE</span>
+  <div>
+    <strong>Group key ratcheting.</strong>
+    Per-group forward secrecy via Sender Keys or TreeKEM, with re-keying on member removal.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-planned">PLANNED</span>
+  <div>
+    <strong>Hidden services (private websites).</strong>
+    Serve web content anonymously through the onion network. Visitors request pages via
+    onion-routed payloads; servers respond via SURB return paths. No centralized hosting
+    infrastructure required.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-planned">PLANNED</span>
+  <div>
+    <strong>Encrypted voice &amp; video.</strong>
+    Real-time media frames transported as encrypted onion payloads, leveraging the relay mesh
+    for NAT traversal without centralized TURN/STUN servers.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-planned">PLANNED</span>
+  <div>
+    <strong>Distributed encrypted backup.</strong>
+    Shard encrypted backup data across multiple Rez nodes for redundancy. Each node stores
+    only opaque ciphertext. Retrieval via onion routing preserves backup ownership privacy.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-future">FUTURE</span>
+  <div>
+    <strong>Mix networking.</strong>
+    Batched, delayed forwarding at relay nodes to resist timing correlation by global
+    passive adversaries.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-future">FUTURE</span>
+  <div>
+    <strong>SQLite storage backend.</strong>
+    Replace filesystem-based storage with SQLite for improved query performance
+    and transactional guarantees. Encryption decorators already decoupled.
+  </div>
+</div>
+<div class="future-item">
+  <span class="future-badge badge-future">FUTURE</span>
+  <div>
+    <strong>Identity key rotation.</strong>
+    Periodic identity key updates with signed rotation certificates to maintain contact
+    continuity across key changes.
+  </div>
+</div>
+
+<!-- ═══ FOOTER ════════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  <p>REZ PROTOCOL &mdash; VERSION 0.2 &mdash; MARCH 2026</p>
+  <div class="footer-status">
+    <div class="status-dot"></div>
+    ENCRYPTED TRANSPORT PROTOCOL &mdash; HKDF-SHA256 / AES-256-GCM / Ed25519 / X25519
+  </div>
+</div>
+
+</div><!-- .wrapper -->
+</body>
+</html>
