@@ -125,6 +125,7 @@ export async function createKeystoreAccount({
   profileName = "",
   keystoreStore,
   cryptoProvider = null,
+  identity: providedIdentity = null,
 } = {}) {
   const pwd = String(password || "");
   if (!pwd) throw new Error("Password is required");
@@ -134,7 +135,13 @@ export async function createKeystoreAccount({
   if (has) throw new Error("Keystore already exists. Unlock with your password.");
 
   const now = Date.now();
-  const identity = await Identity.generate({ cryptoProvider });
+  // Caller may inject a pre-derived identity (e.g., BIP39-seed-rooted via
+  // SeedKeys.deriveEd25519) — this is the recoverable path. If absent we fall
+  // back to random Identity.generate(), which is non-recoverable and only used
+  // for tests / non-recoverable bootstrap.
+  const identity = providedIdentity instanceof Identity
+    ? providedIdentity
+    : await Identity.generate({ cryptoProvider });
   const payload = serializePayload({
     keystoreVersion: KEYSTORE_PAYLOAD_VERSION,
     createdAtMs: now,
