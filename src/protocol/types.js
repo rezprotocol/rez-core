@@ -43,6 +43,12 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   NODE_STATUS: "node.status",
   NODE_STATUS_RES: "node.status.res",
 
+  // --- durable signed-record store (publish/fetch over the DHT overlay) ---
+  RECORD_PUT: "record.put",
+  RECORD_PUT_RES: "record.put.res",
+  RECORD_GET: "record.get",
+  RECORD_GET_RES: "record.get.res",
+
   // --- handle operations (6) ---
   HANDLE_REGISTER: "handle.register",
   HANDLE_REGISTER_RES: "handle.register.res",
