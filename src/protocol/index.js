@@ -14,3 +14,10 @@ export {
   durableRecordSignableBytes,
   buildDurableRecordV1,
 } from "./durableRecordV1.js";
+export {
+  MESH_ADDRESS_KINDS,
+  buildInboxAddress,
+  buildRendezvousAddress,
+  isMeshAddress,
+  assertValidMeshAddress,
+} from "./meshAddressV1.js";
