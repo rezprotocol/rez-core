@@ -105,6 +105,52 @@ test("RMailbox — maxItems count seeds from existing on-disk backlog", async ()
   );
 });
 
+test("RMailbox — maxBytes caps total bytes per mailbox (DoS guard) and ack frees bytes", async () => {
+  const store = new MemoryDataStore();
+  // Fixed-size payloads so the running byte total is predictable.
+  const unit = makeAppRecord("aa", new Uint8Array(1000)).toBytes().length;
+  const mbox = new RMailbox({ store, registry: createDefaultRegistry(), maxBytes: unit * 2 + 1 });
+
+  const id0 = await mbox.deposit("inbox:victim", makeAppRecord("b0", new Uint8Array(1000)));
+  await mbox.deposit("inbox:victim", makeAppRecord("b1", new Uint8Array(1000)));
+  // A third deposit would push the total past the byte cap.
+  await assert.rejects(
+    () => mbox.deposit("inbox:victim", makeAppRecord("b2", new Uint8Array(1000))),
+    (err) => err instanceof MailboxQuotaExceededError && err.limitType === "bytes" && err.cap === unit * 2 + 1,
+  );
+  // The cap is per-mailbox: a different mailbox is unaffected.
+  await mbox.deposit("inbox:other", makeAppRecord("o0", new Uint8Array(1000)));
+  // ack() frees bytes so a subsequent deposit fits again.
+  assert.equal(await mbox.ack("inbox:victim", id0), true);
+  await mbox.deposit("inbox:victim", makeAppRecord("b3", new Uint8Array(1000)));
+  const { items } = await mbox.list("inbox:victim", { limit: 100 });
+  assert.equal(items.length, 2, "still within byte cap after ack + one new deposit");
+});
+
+test("RMailbox — maxBytes total persists across instances via O(1) counter (no body re-read)", async () => {
+  const store = new MemoryDataStore();
+  const unit = makeAppRecord("aa", new Uint8Array(1000)).toBytes().length;
+  const a = new RMailbox({ store, registry: createDefaultRegistry(), maxBytes: unit * 2 + 1 });
+  await a.deposit("inbox:v", makeAppRecord("aa", new Uint8Array(1000)));
+  await a.deposit("inbox:v", makeAppRecord("bb", new Uint8Array(1000)));
+  // A fresh instance seeds the byte total from the persisted counter and rejects
+  // without scanning event bodies.
+  const b = new RMailbox({ store, registry: createDefaultRegistry(), maxBytes: unit * 2 + 1 });
+  await assert.rejects(
+    () => b.deposit("inbox:v", makeAppRecord("cc", new Uint8Array(1000))),
+    (err) => err instanceof MailboxQuotaExceededError && err.limitType === "bytes",
+  );
+});
+
+test("RMailbox — uncapped by default ignores byte totals", async () => {
+  const mbox = createMailbox();
+  for (let i = 0; i < 6; i += 1) {
+    await mbox.deposit("m1", makeAppRecord("big_" + i, new Uint8Array(100_000)));
+  }
+  const { items } = await mbox.list("m1", { limit: 100 });
+  assert.equal(items.length, 6, "no byte cap configured → all deposits kept");
+});
+
 test("RMailbox — deposit and fetch with AppDepositRecord", async () => {
   const mbox = createMailbox();
   await mbox.createMailbox("m1");

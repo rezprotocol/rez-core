@@ -7,12 +7,14 @@ import { MailboxRecordRegistry } from "./MailboxRecordRegistry.js";
  * the deposit is dropped rather than letting one mailbox grow without bound.
  */
 export class MailboxQuotaExceededError extends Error {
-  constructor(mailboxId, cap) {
-    super("RMailbox: mailbox '" + mailboxId + "' is at its item cap (" + cap + ")");
+  constructor(mailboxId, cap, limitType = "items") {
+    super("RMailbox: mailbox '" + mailboxId + "' is at its " + limitType + " cap (" + cap + ")");
     this.name = "MailboxQuotaExceededError";
     this.code = "MAILBOX_QUOTA_EXCEEDED";
     this.mailboxId = mailboxId;
     this.cap = cap;
+    // "items" | "bytes" — which limit was hit (both share this error type).
+    this.limitType = limitType;
   }
 }
 
@@ -35,12 +37,21 @@ export class RMailbox {
   // memory, lazily seeded from disk on first access per mailbox.
   #maxItems;
   #countByMailbox = new Map();
+  // Per-mailbox byte cap (DoS guard), independent of the item cap. null =
+  // unlimited (default). The item count is cheap to seed by listing keys, but a
+  // byte total can't be summed from list() without reading every event body, so
+  // the total is kept in an O(1) persisted counter per mailbox
+  // (mbox/<id>/bytesz) and maintained incrementally on deposit/ack — there is
+  // deliberately no O(n) read-to-seed of event bodies on startup.
+  #maxBytes;
+  #bytesByMailbox = new Map();
 
   /**
-   * @param {{ store: RDataStore, registry: MailboxRecordRegistry, maxItems?: number|null }} opts
+   * @param {{ store: RDataStore, registry: MailboxRecordRegistry, maxItems?: number|null, maxBytes?: number|null }} opts
    * @param {number|null} [opts.maxItems] per-mailbox item cap; omit/null for unlimited.
+   * @param {number|null} [opts.maxBytes] per-mailbox total-bytes cap; omit/null for unlimited.
    */
-  constructor({ store, registry, maxItems = null }) {
+  constructor({ store, registry, maxItems = null, maxBytes = null }) {
     if (!(store instanceof RDataStore)) {
       throw new Error("RMailbox requires store (RDataStore)");
     }
@@ -50,6 +61,7 @@ export class RMailbox {
     this.#store = store;
     this.#registry = registry;
     this.#maxItems = typeof maxItems === "number" && maxItems > 0 ? maxItems : null;
+    this.#maxBytes = typeof maxBytes === "number" && maxBytes > 0 ? maxBytes : null;
   }
 
   setOnDeposit(fn) {
@@ -111,12 +123,19 @@ export class RMailbox {
       ? { ...record.metadata, contentType }
       : { contentType };
 
-    // Per-mailbox item cap (DoS guard). Enforced for every deposit path because
+    // Per-mailbox caps (DoS guard). Enforced for every deposit path because
     // depositFromWire() and deposit() both funnel here. No-op when uncapped.
     if (this.#maxItems !== null) {
       const count = await this.#ensureCount(mailboxId);
       if (count >= this.#maxItems) {
-        throw new MailboxQuotaExceededError(mailboxId, this.#maxItems);
+        throw new MailboxQuotaExceededError(mailboxId, this.#maxItems, "items");
+      }
+    }
+    const byteLen = bytes.length;
+    if (this.#maxBytes !== null) {
+      const used = await this.#ensureBytes(mailboxId);
+      if (used + byteLen > this.#maxBytes) {
+        throw new MailboxQuotaExceededError(mailboxId, this.#maxBytes, "bytes");
       }
     }
 
@@ -128,6 +147,11 @@ export class RMailbox {
 
     if (this.#maxItems !== null) {
       this.#countByMailbox.set(mailboxId, (this.#countByMailbox.get(mailboxId) || 0) + 1);
+    }
+    if (this.#maxBytes !== null) {
+      const nextBytes = (this.#bytesByMailbox.get(mailboxId) || 0) + byteLen;
+      this.#bytesByMailbox.set(mailboxId, nextBytes);
+      await this.#persistBytes(mailboxId, nextBytes);
     }
 
     this.#notifyWaiters(mailboxId, { eventId, ...value });
@@ -187,10 +211,27 @@ export class RMailbox {
   async ack(mailboxId, eventId) {
     _assertNonEmpty(mailboxId, "mailboxId");
     _assertNonEmpty(eventId, "eventId");
-    const removed = await this.#store.remove(`mbox/${mailboxId}/evt/${eventId}`);
+    const key = `mbox/${mailboxId}/evt/${eventId}`;
+    // When a byte cap is active we need the record's size to keep the counter
+    // accurate, so read it before removal. Skipped (no extra read) when uncapped.
+    let ackedBytes = 0;
+    if (this.#maxBytes !== null) {
+      const existing = await this.#store.get(key);
+      if (existing && existing.bytes instanceof Uint8Array) {
+        ackedBytes = existing.bytes.length;
+      }
+    }
+    const removed = await this.#store.remove(key);
     if (removed && this.#maxItems !== null && this.#countByMailbox.has(mailboxId)) {
       const next = (this.#countByMailbox.get(mailboxId) || 0) - 1;
       this.#countByMailbox.set(mailboxId, next > 0 ? next : 0);
+    }
+    if (removed && this.#maxBytes !== null) {
+      const used = await this.#ensureBytes(mailboxId);
+      const next = used - ackedBytes;
+      const clamped = next > 0 ? next : 0;
+      this.#bytesByMailbox.set(mailboxId, clamped);
+      await this.#persistBytes(mailboxId, clamped);
     }
     return removed;
   }
@@ -217,6 +258,29 @@ export class RMailbox {
     }
     this.#countByMailbox.set(mailboxId, count);
     return count;
+  }
+
+  /**
+   * Lazily seed and return the in-memory byte total for a mailbox from its O(1)
+   * persisted counter (mbox/<id>/bytesz). A mailbox with no persisted counter
+   * yet — created before this counter existed, or never deposited under a byte
+   * cap — seeds to 0 and is maintained incrementally from here; we deliberately
+   * do NOT scan and read every event body to reconstruct a historical total
+   * (that would reintroduce the O(n) body-read this counter exists to avoid).
+   * Only called when a byte cap is configured.
+   */
+  async #ensureBytes(mailboxId) {
+    if (this.#bytesByMailbox.has(mailboxId)) {
+      return this.#bytesByMailbox.get(mailboxId);
+    }
+    const rec = await this.#store.get(`mbox/${mailboxId}/bytesz`);
+    const seeded = rec && typeof rec.total === "number" && rec.total > 0 ? rec.total : 0;
+    this.#bytesByMailbox.set(mailboxId, seeded);
+    return seeded;
+  }
+
+  async #persistBytes(mailboxId, total) {
+    await this.#store.put(`mbox/${mailboxId}/bytesz`, { total });
   }
 
   waitForDeposit(mailboxId, { timeoutMs = 2000, cursor, sinceMs } = {}) {
