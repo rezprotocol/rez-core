@@ -295,9 +295,12 @@ export class SecureChannelManager {
     let includeDh = sendCtx.includeDh;
 
     // Responder starts with sendingChain=null. Perform a DH ratchet step to
-    // derive a sending chain before the first outbound message.
+    // derive a sending chain before the first outbound message. Establish ONLY
+    // the sending chain and PRESERVE the receiving chain (the peer's still-active
+    // send chain) — clobbering it desynced the responder from the initiator's
+    // in-flight messages (the group offline catch-up decrypt failure).
     if (!ratchetState.sendingChain && ratchetState.remoteDhPublicKey) {
-      const step = await this.#ratchet.ratchetStep(ratchetState, ratchetState.remoteDhPublicKey);
+      const step = await this.#ratchet.ratchetStep(ratchetState, ratchetState.remoteDhPublicKey, { establish: "sending" });
       ratchetState = step.newState;
       includeDh = true;
     }

@@ -86,7 +86,7 @@ export class RatchetService extends RService {
     });
   }
 
-  async ratchetStep(state, newRemoteDhPublicKey) {
+  async ratchetStep(state, newRemoteDhPublicKey, { establish = "both" } = {}) {
     if (!(state instanceof RatchetState)) {
       throw new Error("RatchetService.ratchetStep requires RatchetState");
     }
@@ -108,10 +108,26 @@ export class RatchetService extends RService {
     const sendKey = ordering < 0 ? sendingChainKey : receivingChainKey;
     const recvKey = ordering < 0 ? receivingChainKey : sendingChainKey;
 
+    // A DH step derives BOTH direction chain keys from the new root, but it must
+    // only INSTALL the one being established and PRESERVE the opposite chain:
+    //   - "sending": establishing our sending chain (responder's lazy first
+    //     send) — keep the existing receiving chain (the peer's still-active
+    //     send chain). Clobbering it desynced the responder from the initiator's
+    //     in-flight messages (root 9dde vs 4aec), which is the group offline
+    //     catch-up decrypt failure (2026-06-04).
+    //   - "receiving": establishing our receiving chain (initiator picking up
+    //     the responder's new chain) — keep our existing sending chain.
+    //   - "both": legacy full replace (used by direct unit callers).
+    const installSending = establish !== "receiving";
+    const installReceiving = establish !== "sending";
     const newState = new RatchetState({
       rootKey: newRootKey,
-      sendingChain: new RatchetChainState({ chainKey: sendKey, messageIndex: 0 }),
-      receivingChain: new RatchetChainState({ chainKey: recvKey, messageIndex: 0 }),
+      sendingChain: installSending
+        ? new RatchetChainState({ chainKey: sendKey, messageIndex: 0 })
+        : state.sendingChain,
+      receivingChain: installReceiving
+        ? new RatchetChainState({ chainKey: recvKey, messageIndex: 0 })
+        : state.receivingChain,
       selfDhKeyPair: state.selfDhKeyPair,
       remoteDhPublicKey: newRemoteDhPublicKey,
       skipped: state.skipped,
@@ -193,7 +209,10 @@ export class RatchetService extends RService {
     if (header.dh != null) {
       assertKeyBytes(header.dh, "header.dh");
       if (!bytesEqual(header.dh, workingState.remoteDhPublicKey)) {
-        const step = await this.ratchetStep(workingState, header.dh);
+        // Establish ONLY our receiving chain from the peer's new DH; preserve
+        // our sending chain so our own in-flight/old-chain messages to them
+        // stay valid.
+        const step = await this.ratchetStep(workingState, header.dh, { establish: "receiving" });
         workingState = step.newState;
       }
     }
