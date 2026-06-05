@@ -1,6 +1,21 @@
 import { RDataStore } from "../storage/RDataStore.js";
 import { MailboxRecordRegistry } from "./MailboxRecordRegistry.js";
 
+/**
+ * Thrown by RMailbox.deposit when a mailbox is at its configured item cap.
+ * Callers that fire-and-forget a deposit (relay ingress paths) catch + log it;
+ * the deposit is dropped rather than letting one mailbox grow without bound.
+ */
+export class MailboxQuotaExceededError extends Error {
+  constructor(mailboxId, cap) {
+    super("RMailbox: mailbox '" + mailboxId + "' is at its item cap (" + cap + ")");
+    this.name = "MailboxQuotaExceededError";
+    this.code = "MAILBOX_QUOTA_EXCEEDED";
+    this.mailboxId = mailboxId;
+    this.cap = cap;
+  }
+}
+
 export class RMailbox {
   static VISIBILITY = Object.freeze({ PRIVATE: "private", PUBLIC_READ: "public-read" });
 
@@ -14,11 +29,18 @@ export class RMailbox {
   #waiters = new Map();
   #counter = 0;
   #onDeposit = null;
+  // Per-mailbox item cap (DoS guard). null = unlimited (default; preserves
+  // behaviour for every non-relay RMailbox). The relay inbox store opts in so a
+  // sender cannot fill a victim's buffer without bound. Counts are tracked in
+  // memory, lazily seeded from disk on first access per mailbox.
+  #maxItems;
+  #countByMailbox = new Map();
 
   /**
-   * @param {{ store: RDataStore, registry: MailboxRecordRegistry }} opts
+   * @param {{ store: RDataStore, registry: MailboxRecordRegistry, maxItems?: number|null }} opts
+   * @param {number|null} [opts.maxItems] per-mailbox item cap; omit/null for unlimited.
    */
-  constructor({ store, registry }) {
+  constructor({ store, registry, maxItems = null }) {
     if (!(store instanceof RDataStore)) {
       throw new Error("RMailbox requires store (RDataStore)");
     }
@@ -27,6 +49,7 @@ export class RMailbox {
     }
     this.#store = store;
     this.#registry = registry;
+    this.#maxItems = typeof maxItems === "number" && maxItems > 0 ? maxItems : null;
   }
 
   setOnDeposit(fn) {
@@ -88,11 +111,24 @@ export class RMailbox {
       ? { ...record.metadata, contentType }
       : { contentType };
 
+    // Per-mailbox item cap (DoS guard). Enforced for every deposit path because
+    // depositFromWire() and deposit() both funnel here. No-op when uncapped.
+    if (this.#maxItems !== null) {
+      const count = await this.#ensureCount(mailboxId);
+      if (count >= this.#maxItems) {
+        throw new MailboxQuotaExceededError(mailboxId, this.#maxItems);
+      }
+    }
+
     const eventId = this.#nextEventId();
     const createdAt = Date.now();
     const key = `mbox/${mailboxId}/evt/${eventId}`;
     const value = { objectId, bytes, metadata: meta, createdAt };
     await this.#store.put(key, value);
+
+    if (this.#maxItems !== null) {
+      this.#countByMailbox.set(mailboxId, (this.#countByMailbox.get(mailboxId) || 0) + 1);
+    }
 
     this.#notifyWaiters(mailboxId, { eventId, ...value });
 
@@ -151,7 +187,36 @@ export class RMailbox {
   async ack(mailboxId, eventId) {
     _assertNonEmpty(mailboxId, "mailboxId");
     _assertNonEmpty(eventId, "eventId");
-    return this.#store.remove(`mbox/${mailboxId}/evt/${eventId}`);
+    const removed = await this.#store.remove(`mbox/${mailboxId}/evt/${eventId}`);
+    if (removed && this.#maxItems !== null && this.#countByMailbox.has(mailboxId)) {
+      const next = (this.#countByMailbox.get(mailboxId) || 0) - 1;
+      this.#countByMailbox.set(mailboxId, next > 0 ? next : 0);
+    }
+    return removed;
+  }
+
+  /**
+   * Lazily seed and return the in-memory item count for a mailbox. The first
+   * deposit/ack for a mailbox after process start pays a one-time scan so a
+   * count that survived a restart is not undercounted; afterwards the count is
+   * maintained incrementally. Only called when a cap is configured.
+   */
+  async #ensureCount(mailboxId) {
+    if (this.#countByMailbox.has(mailboxId)) {
+      return this.#countByMailbox.get(mailboxId);
+    }
+    let count = 0;
+    let cursor;
+    // Loop the paginated list to the end so the seed reflects the full backlog.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const page = await this.list(mailboxId, { cursor, limit: 200 });
+      count += page.items.length;
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    this.#countByMailbox.set(mailboxId, count);
+    return count;
   }
 
   waitForDeposit(mailboxId, { timeoutMs = 2000, cursor, sinceMs } = {}) {

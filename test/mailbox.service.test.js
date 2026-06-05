@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { RMailbox } from "../src/mailbox/RMailbox.js";
+import { RMailbox, MailboxQuotaExceededError } from "../src/mailbox/RMailbox.js";
 import { AppDepositRecord } from "../src/mailbox/AppDepositRecord.js";
 import { OuterPacketRecord } from "../src/packets/OuterPacketRecord.js";
 import { encodeOuterPacket } from "../src/packets/OuterPacket.js";
@@ -51,6 +51,58 @@ test("RMailbox — createMailbox defaults to private", async () => {
   await mbox.createMailbox("m1");
   const meta = await mbox.getMailboxMeta("m1");
   assert.equal(meta.visibility, "private");
+});
+
+test("RMailbox — uncapped by default (no maxItems): deposits beyond any count succeed", async () => {
+  const mbox = createMailbox();
+  for (let i = 0; i < 12; i += 1) {
+    await mbox.deposit("m1", makeAppRecord("obj_" + i));
+  }
+  const { items } = await mbox.list("m1", { limit: 100 });
+  assert.equal(items.length, 12, "no cap configured → all deposits kept");
+});
+
+test("RMailbox — maxItems caps deposits per mailbox (DoS guard) and ack frees a slot", async () => {
+  const mbox = new RMailbox({
+    store: new MemoryDataStore(),
+    registry: createDefaultRegistry(),
+    maxItems: 3,
+  });
+
+  const ids = [];
+  for (let i = 0; i < 3; i += 1) {
+    ids.push(await mbox.deposit("inbox:victim", makeAppRecord("obj_" + i)));
+  }
+  // 4th deposit must be rejected — the cap is reached.
+  await assert.rejects(
+    () => mbox.deposit("inbox:victim", makeAppRecord("obj_overflow")),
+    (err) => err instanceof MailboxQuotaExceededError && err.cap === 3,
+  );
+
+  // The cap is per-mailbox: a different mailbox is unaffected.
+  await mbox.deposit("inbox:other", makeAppRecord("obj_other"));
+
+  // ack() frees a slot so a subsequent deposit succeeds again.
+  const removed = await mbox.ack("inbox:victim", ids[0]);
+  assert.equal(removed, true);
+  await mbox.deposit("inbox:victim", makeAppRecord("obj_after_ack"));
+  const { items } = await mbox.list("inbox:victim", { limit: 100 });
+  assert.equal(items.length, 3, "still at cap after ack + one new deposit");
+});
+
+test("RMailbox — maxItems count seeds from existing on-disk backlog", async () => {
+  const store = new MemoryDataStore();
+  // Pre-seed a backlog via an uncapped instance sharing the same store.
+  const seeder = new RMailbox({ store, registry: createDefaultRegistry() });
+  for (let i = 0; i < 5; i += 1) {
+    await seeder.deposit("inbox:v", makeAppRecord("seed_" + i));
+  }
+  // A fresh capped instance must observe the existing backlog and reject.
+  const capped = new RMailbox({ store, registry: createDefaultRegistry(), maxItems: 5 });
+  await assert.rejects(
+    () => capped.deposit("inbox:v", makeAppRecord("over")),
+    (err) => err instanceof MailboxQuotaExceededError,
+  );
 });
 
 test("RMailbox — deposit and fetch with AppDepositRecord", async () => {
