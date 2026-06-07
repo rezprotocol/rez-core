@@ -53,7 +53,7 @@ export class ForwardingDispatcher extends RService {
   }
 
   handlePacket(packet) {
-    if (!(packet?.bytes instanceof Uint8Array)) {
+    if (!(packet && packet.bytes instanceof Uint8Array)) {
       throw new Error("ForwardingDispatcher received packet without bytes");
     }
     const hasValidTo = isNonEmptyString(packet.to);
@@ -66,7 +66,7 @@ export class ForwardingDispatcher extends RService {
         const result = this.localHandler(packet);
         if (result && typeof result.then === "function") {
           result.catch((err) => {
-            this.log?.error?.("ForwardingDispatcher localHandler failed", { err });
+            if (this.log && this.log.error) this.log.error("ForwardingDispatcher localHandler failed", { err });
           });
         }
       } catch (err) {
@@ -81,7 +81,7 @@ export class ForwardingDispatcher extends RService {
     }
 
     if (decision.disposition === "DROP") {
-      this.log?.debug?.("ForwardingDispatcher dropped packet", { to: packet.to, reason: decision.reason });
+      if (this.log && this.log.debug) this.log.debug("ForwardingDispatcher dropped packet", { to: packet.to, reason: decision.reason });
       return;
     }
 

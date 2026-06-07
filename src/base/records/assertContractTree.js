@@ -63,6 +63,6 @@ function isPrimitive(value) {
 function describe(value) {
   if (value == null) return String(value);
   if (Array.isArray(value)) return "array";
-  if (value instanceof RRecord) return `RRecord(${value.constructor?.name || "unknown"})`;
+  if (value instanceof RRecord) return `RRecord(${value.constructor && value.constructor.name || "unknown"})`;
   return typeof value;
 }

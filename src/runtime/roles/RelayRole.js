@@ -42,19 +42,19 @@ export class RelayRole {
     if (typeof this.runtime.start === "function") {
       await this.runtime.start();
     }
-    if (this.dispatcher?.start) {
+    if (this.dispatcher && this.dispatcher.start) {
       await this.dispatcher.start();
     }
-    if (this.forwardingDispatcher?.start) {
+    if (this.forwardingDispatcher && this.forwardingDispatcher.start) {
       await this.forwardingDispatcher.start();
     }
   }
 
   async stop() {
-    if (this.forwardingDispatcher?.stop) {
+    if (this.forwardingDispatcher && this.forwardingDispatcher.stop) {
       await this.forwardingDispatcher.stop();
     }
-    if (this.dispatcher?.stop) {
+    if (this.dispatcher && this.dispatcher.stop) {
       await this.dispatcher.stop();
     }
     if (typeof this.runtime.stop === "function") {

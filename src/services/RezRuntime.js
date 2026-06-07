@@ -90,7 +90,7 @@ export class RezRuntime extends RService {
     const envelope = await Promise.resolve(this.decodeEnvelope(packet.bytes));
     const id = await Promise.resolve(this.saveEnvelope(envelope));
 
-    const mailboxId = packet.meta?.depositMailboxId;
+    const mailboxId = packet.meta && packet.meta.depositMailboxId;
     if (mailboxId) {
       await Promise.resolve(this.depositToMailbox(mailboxId, id));
     }

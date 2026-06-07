@@ -8,7 +8,7 @@ export class Envelope extends RSerializable {
   constructor({ header, body, meta = undefined } = {}) {
     super();
 
-    this.assert(header instanceof Header, "Envelope.header must be a Header", { headerType: header?.type });
+    this.assert(header instanceof Header, "Envelope.header must be a Header", { headerType: header && header.type });
     this.assert(body !== undefined, "Envelope.body is required", { body });
 
     if (meta !== undefined) {

@@ -6,7 +6,7 @@ import { NullLogTransport } from "../base/index.js";
 
 export class InboxDispatcher extends RService {
   constructor({ transport, runtime, logger } = {}) {
-    const log = logger || runtime?.log || new RLogger({ transports: [new NullLogTransport()] });
+    const log = logger || (runtime && runtime.log) || new RLogger({ transports: [new NullLogTransport()] });
     super({ log });
 
     if (!(transport instanceof RTransport)) {
@@ -26,14 +26,14 @@ export class InboxDispatcher extends RService {
   }
 
   handlePacket(packet) {
-    if (!(packet?.bytes instanceof Uint8Array)) {
+    if (!(packet && packet.bytes instanceof Uint8Array)) {
       throw new Error("InboxDispatcher received packet without bytes");
     }
     try {
       const result = this.runtime.receivePacket(packet);
       if (result && typeof result.then === "function") {
         result.catch((err) => {
-          this.log?.error?.("InboxDispatcher receivePacket failed", { err });
+          if (this.log && this.log.error) this.log.error("InboxDispatcher receivePacket failed", { err });
         });
       }
     } catch (err) {

@@ -19,9 +19,9 @@ const DEFAULT_SCRYPT_KDF_PARAMS = Object.freeze({
 
 function resolveCrypto(cryptoProvider = null) {
   const direct = cryptoProvider && typeof cryptoProvider === "object" ? cryptoProvider : null;
-  const cryptoObj = direct?.crypto || direct || globalThis.crypto;
-  const subtle = direct?.subtle || cryptoObj?.subtle;
-  const getRandomValues = direct?.getRandomValues || cryptoObj?.getRandomValues;
+  const cryptoObj = direct && direct.crypto || direct || globalThis.crypto;
+  const subtle = direct && direct.subtle || cryptoObj && cryptoObj.subtle;
+  const getRandomValues = direct && direct.getRandomValues || cryptoObj && cryptoObj.getRandomValues;
   if (!subtle || typeof subtle.importKey !== "function") {
     throw new Error("WebCrypto subtle API is required for keystore operations");
   }

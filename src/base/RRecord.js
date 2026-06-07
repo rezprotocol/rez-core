@@ -61,7 +61,7 @@ export class RRecord extends RObject {
       new this(raw);
       return { valid: true };
     } catch (err) {
-      const msg = err?.message ?? "Invalid";
+      const msg = err && err.message != null ? err.message : "Invalid";
       return { valid: false, errors: [msg] };
     }
   }

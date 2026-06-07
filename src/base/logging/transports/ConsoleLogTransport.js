@@ -7,7 +7,7 @@ export class ConsoleLogTransport extends RLogTransport {
   }
 
   handle(event) {
-    const fn = this.console?.[event.level] || this.console?.log;
+    const fn = (this.console && this.console[event.level]) || (this.console && this.console.log);
     if (typeof fn === "function") {
       fn.call(this.console, event.message, event.meta);
     }

@@ -44,7 +44,7 @@ export class RService extends RAbstract {
       try {
         item.dispose();
       } catch (err) {
-        this.log?.error?.("RService failed to dispose owned item", { err });
+        if (this.log && this.log.error) this.log.error("RService failed to dispose owned item", { err });
       }
     }
     this._owned = [];
