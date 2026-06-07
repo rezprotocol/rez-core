@@ -159,8 +159,20 @@ export class RMailbox {
     if (this.#onDeposit) {
       const fn = this.#onDeposit;
       // Defer to macrotask so deposit processing does not interleave
-      // with the depositor's await chain via microtask scheduling.
-      setTimeout(() => { try { fn(mailboxId, eventId); } catch { /* ignore */ } }, 0);
+      // with the depositor's await chain via microtask scheduling. A throw from
+      // the callback must NOT be silently swallowed — it would hide a broken
+      // live-delivery notification (the exact failure mode that left deposits
+      // stranded in the buffer); surface it so the problem is visible.
+      setTimeout(() => {
+        try {
+          fn(mailboxId, eventId);
+        } catch (err) {
+          console.error(
+            "[RMailbox] onDeposit callback threw for mailbox " + mailboxId
+            + " event " + eventId + ": " + (err && err.message ? err.message : String(err))
+          );
+        }
+      }, 0);
     }
 
     return eventId;
