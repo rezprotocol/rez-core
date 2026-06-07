@@ -37,13 +37,13 @@ export class OnionPeelCodecV2 extends RCodec {
       throw new Error("OnionPeelCodecV2.decode requires rez.onion.v2 envelope");
     }
 
-    const onion = ctx.meta?.onion;
+    const onion = ctx.meta && ctx.meta.onion;
     if (!onion) {
       throw new Error("OnionPeelCodecV2.decode requires ctx.meta.onion");
     }
     const keyResolver = onion.keyResolver;
     const keyring = onion.keyring;
-    const nowMs = Number.isFinite(ctx.meta?.nowMs) ? ctx.meta.nowMs : Date.now();
+    const nowMs = Number.isFinite(ctx.meta && ctx.meta.nowMs) ? ctx.meta.nowMs : Date.now();
     if (typeof keyResolver !== "function" && !(keyring instanceof OnionKeyringV1)) {
       throw new Error("OnionPeelCodecV2.decode requires keyResolver or keyring");
     }

@@ -34,7 +34,7 @@ function validateSignature(sig, meta) {
   if (!sigB64 || sigB64.length > 4096) {
     throw new Error("RelayDescriptorV1.sig.sigB64 invalid");
   }
-  const metaKeyId = String(meta?.node?.keyId || "").trim();
+  const metaKeyId = String(meta && meta.node && meta.node.keyId || "").trim();
   if (metaKeyId && metaKeyId !== keyId) {
     throw new Error("RelayDescriptorV1.sig.keyId must match meta.node.keyId");
   }

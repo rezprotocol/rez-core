@@ -14,8 +14,8 @@ function resolveCrypto(cryptoProvider = null) {
     return { rcrypto: direct };
   }
 
-  const cryptoObj = direct?.crypto || direct || globalThis.crypto;
-  const subtle = direct?.subtle || cryptoObj?.subtle;
+  const cryptoObj = (direct && direct.crypto) || direct || globalThis.crypto;
+  const subtle = (direct && direct.subtle) || (cryptoObj && cryptoObj.subtle);
   if (!subtle || typeof subtle.generateKey !== "function") {
     throw new Error("WebCrypto subtle API or RCryptoProvider is required for identity operations");
   }

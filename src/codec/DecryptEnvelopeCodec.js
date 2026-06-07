@@ -43,7 +43,7 @@ export class DecryptEnvelopeCodec extends RCodec {
       throw new Error("DecryptEnvelopeCodec.decode requires rez.encrypted.v1 envelope");
     }
 
-    const secure = ctx.meta?.secureChannel;
+    const secure = ctx.meta && ctx.meta.secureChannel;
     if (!secure || !isBytes(secure.sid)) {
       throw new Error("DecryptEnvelopeCodec.decode requires ctx.meta.secureChannel.sid Uint8Array");
     }

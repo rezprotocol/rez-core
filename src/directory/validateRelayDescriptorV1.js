@@ -76,7 +76,7 @@ function validateSignature(sig, meta) {
   if (!sigB64 || sigB64.length > 4096) {
     throw new Error("sig.sigB64 invalid");
   }
-  const metaKeyId = String(meta?.node?.keyId || "").trim();
+  const metaKeyId = String(meta && meta.node && meta.node.keyId || "").trim();
   if (metaKeyId && metaKeyId !== keyId) {
     throw new Error("sig.keyId mismatch");
   }
@@ -84,7 +84,7 @@ function validateSignature(sig, meta) {
 
 export function validateRelayDescriptorV1(value, { nowMs } = {}) {
   try {
-    if (value?.meta !== undefined) {
+    if (value && value.meta !== undefined) {
       const meta = value.meta;
       if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
         throw new Error("meta must be object");
@@ -131,14 +131,14 @@ export function validateRelayDescriptorV1(value, { nowMs } = {}) {
         validateNodeMeta(meta.node);
       }
     }
-    if (value?.sig !== undefined) {
-      validateSignature(value.sig, value?.meta);
+    if (value && value.sig !== undefined) {
+      validateSignature(value.sig, value && value.meta);
     }
     const descriptor = value instanceof RelayDescriptorV1
       ? value
       : RelayDescriptorV1.fromJSON(value, { nowMs });
     return { ok: true, descriptor };
   } catch (err) {
-    return { ok: false, reason: err?.message || "invalid" };
+    return { ok: false, reason: err && err.message || "invalid" };
   }
 }

@@ -36,7 +36,7 @@ export class EncryptEnvelopeCodec extends RCodec {
       throw new Error("EncryptEnvelopeCodec.encode requires ctx.envelope (Envelope)");
     }
 
-    const secure = ctx.meta?.secureChannel;
+    const secure = ctx.meta && ctx.meta.secureChannel;
     if (!secure || !isBytes(secure.sid)) {
       throw new Error("EncryptEnvelopeCodec.encode requires ctx.meta.secureChannel.sid Uint8Array");
     }
@@ -51,8 +51,8 @@ export class EncryptEnvelopeCodec extends RCodec {
     }
 
     const state = secure.ratchetState;
-    const n = state.sendingChain?.messageIndex ?? 0;
-    const pn = state.receivingChain?.messageIndex ?? 0;
+    const n = state.sendingChain && state.sendingChain.messageIndex != null ? state.sendingChain.messageIndex : 0;
+    const pn = state.receivingChain && state.receivingChain.messageIndex != null ? state.receivingChain.messageIndex : 0;
     const includeDh = Boolean(secure.includeDh);
     const dh = includeDh ? state.selfDhKeyPair.publicKey : null;
     const dhAlg = this.ratchet.dhAlg;

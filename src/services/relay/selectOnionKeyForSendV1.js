@@ -28,9 +28,9 @@ export function descriptorHasUsableOnionKey(descriptor, nowMs) {
   let hasUsable = false;
   let hasActiveOrDraining = false;
   for (const key of keys) {
-    const notBefore = Number(key?.notBefore);
-    const notAfter = Number(key?.notAfter);
-    const status = key?.status;
+    const notBefore = Number(key ? key.notBefore : undefined);
+    const notAfter = Number(key ? key.notAfter : undefined);
+    const status = key ? key.status : undefined;
     if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter)) continue;
     if (status === "revoked") continue;
     if (notBefore <= nowMs && nowMs < notAfter) {

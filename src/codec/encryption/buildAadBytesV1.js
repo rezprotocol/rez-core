@@ -32,7 +32,7 @@ export function buildAadBytesV1({ envelopeHeader, encrypted }) {
     encrypted: {
       v: encrypted.v,
       suite: encrypted.suite,
-      ratchetHeader: encrypted.header?.toJSON ? encrypted.header.toJSON() : encrypted.header,
+      ratchetHeader: encrypted.header && encrypted.header.toJSON ? encrypted.header.toJSON() : encrypted.header,
     },
   };
 

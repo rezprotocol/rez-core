@@ -20,10 +20,10 @@ export class DefaultRoutingPolicy extends RRoutingPolicy {
       return { disposition: "DROP", nextHop: null, reason: "OVERSIZE" };
     }
 
-    if (resolution?.disposition === "LOCAL") {
+    if (resolution && resolution.disposition === "LOCAL") {
       return { disposition: "LOCAL", nextHop: null };
     }
-    if (resolution?.disposition === "FORWARD") {
+    if (resolution && resolution.disposition === "FORWARD") {
       return { disposition: "FORWARD", nextHop: resolution.nextHop ?? null };
     }
     return { disposition: "DROP", nextHop: null };

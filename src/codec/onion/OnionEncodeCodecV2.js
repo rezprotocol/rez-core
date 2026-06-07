@@ -38,20 +38,20 @@ export class OnionEncodeCodecV2 extends RCodec {
       throw new Error("OnionEncodeCodecV2.encode requires ctx.bytes Uint8Array");
     }
 
-    const onion = ctx.meta?.onion;
-    const path = onion?.path;
+    const onion = ctx.meta && ctx.meta.onion;
+    const path = onion && onion.path;
     if (!Array.isArray(path) || path.length === 0) {
       throw new Error("OnionEncodeCodecV2.encode requires meta.onion.path[]");
     }
 
-    const ttl = Number.isInteger(onion?.ttl) ? onion.ttl : path.length;
+    const ttl = Number.isInteger(onion && onion.ttl) ? onion.ttl : path.length;
     if (!Number.isInteger(ttl) || ttl < 0) {
       throw new Error("OnionEncodeCodecV2.encode requires ttl >= 0");
     }
-    const flags = onion?.flags ?? { dropOnFail: true };
-    const sizeClass = onion?.sizeClass;
-    const nowMs = Number.isFinite(ctx.meta?.nowMs) ? ctx.meta.nowMs : Date.now();
-    const finalEndpoint = onion?.finalEndpoint;
+    const flags = onion && onion.flags != null ? onion.flags : { dropOnFail: true };
+    const sizeClass = onion && onion.sizeClass;
+    const nowMs = Number.isFinite(ctx.meta && ctx.meta.nowMs) ? ctx.meta.nowMs : Date.now();
+    const finalEndpoint = onion && onion.finalEndpoint;
     if (!finalEndpoint || typeof finalEndpoint !== "object") {
       throw new Error("OnionEncodeCodecV2.encode requires meta.onion.finalEndpoint");
     }
@@ -117,10 +117,10 @@ export class OnionEncodeCodecV2 extends RCodec {
 
     const onionPacket = buildFixedOnionPacketV2(blob, sizeClass);
     const header = new Header({
-      id: ctx.meta?.headerId || `onion-${Date.now()}`,
+      id: ctx.meta && ctx.meta.headerId || `onion-${Date.now()}`,
       type: "rez.onion.v2",
-      createdAt: ctx.meta?.createdAt ?? Date.now(),
-      links: ctx.meta?.links ?? [],
+      createdAt: ctx.meta && ctx.meta.createdAt != null ? ctx.meta.createdAt : Date.now(),
+      links: ctx.meta && ctx.meta.links != null ? ctx.meta.links : [],
     });
 
     ctx.envelope = new Envelope({
