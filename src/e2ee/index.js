@@ -6,5 +6,6 @@ export { E2eeHandshakeAckV1 } from "./E2eeHandshakeAckV1.js";
 export { E2eeHandshakeRejectV1 } from "./E2eeHandshakeRejectV1.js";
 export { E2eeDeliveryAckV1 } from "./E2eeDeliveryAckV1.js";
 export { E2eeRehandshakeRequestV1 } from "./E2eeRehandshakeRequestV1.js";
+export { E2eeIntroductionRequestV1 } from "./E2eeIntroductionRequestV1.js";
 export { X3DHKeyExchange } from "./X3DHKeyExchange.js";
 export { signHandshakeEnvelope, verifyHandshakeEnvelope, canonicalHandshakeBytes } from "./handshakeSignature.js";
