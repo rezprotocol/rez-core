@@ -29,6 +29,16 @@ function assertSecretBytes(bytes) {
   if (bytes.length !== 32) {
     throw new Error("X3DHService requires shared secret length 32");
   }
+  // REZ-10: reject an all-zero DH output — the result of a low-order / small-
+  // subgroup public key (RFC 7748 contributory-behaviour check). WebCrypto X25519
+  // does not reject these, so a peer substituting a low-order public key could
+  // force a known-constant DH and weaken the derived secret. OR-accumulate in
+  // constant time so the check does not leak which byte was non-zero.
+  let acc = 0;
+  for (let i = 0; i < bytes.length; i++) acc |= bytes[i];
+  if (acc === 0) {
+    throw new Error("X3DHService rejects all-zero (contributory) shared secret");
+  }
 }
 
 /**

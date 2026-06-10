@@ -36,6 +36,14 @@ export class FileManifestV1 extends RSerializable {
       Number.isInteger(chunkCount) && chunkCount > 0,
       "FileManifestV1 requires positive integer chunkCount",
     );
+    // TRUST: chunkCount is self-asserted and drives receiver-side array
+    // allocation; cap it and cross-check it against fileSizeBytes/chunkSizeBytes
+    // so a peer cannot claim an enormous count to force a huge allocation, and so
+    // the count/size/chunkSize triple is internally consistent.
+    this.assert(
+      chunkCount === Math.ceil(fileSizeBytes / chunkSizeBytes),
+      "FileManifestV1 chunkCount must equal ceil(fileSizeBytes / chunkSizeBytes)",
+    );
     this.assert(
       typeof fileHashHex === "string" && HEX_RE.test(fileHashHex),
       "FileManifestV1 requires 64-char lowercase hex fileHashHex",

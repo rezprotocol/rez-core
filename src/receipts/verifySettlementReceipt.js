@@ -34,6 +34,14 @@ export async function verifySettlementReceipt({ receipt, lookupRelayPublicKey, c
   if (typeof relayKeyId !== "string" || relayKeyId.length === 0) {
     return { ok: false, reason: "relayKeyId missing" };
   }
+  // TRUST: the key that selects the trust anchor must live INSIDE the signed
+  // region. Records carry a top-level (signed) relayKeyId as well as sig.relayKeyId
+  // (outside the signed body); require them to match so an attacker can't point the
+  // key lookup at a different key than the one the body was actually signed under.
+  if (typeof receipt.relayKeyId === "string" && receipt.relayKeyId.length > 0
+      && receipt.relayKeyId !== relayKeyId) {
+    return { ok: false, reason: "relayKeyId mismatch (sig vs signed body)" };
+  }
 
   let signature;
   try {
