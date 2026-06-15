@@ -6,10 +6,11 @@ For cryptographic goals and limitations, see [security.md](./security.md) and th
 
 ## Active Ownership
 
-- `rez-core` owns shared protocol constants, encoding helpers, crypto primitives, and records that must be usable across packages.
+- `rez-core` owns shared protocol constants, encoding helpers, crypto primitives, and records that must be usable across packages (including the settlement/paid-service wire records: `PaidServiceSpecV1`, `SettlementEntryV1`, `ServiceAckV1`, and the signed receipt family).
 - `rez-node/src/contracts` owns server-side WebSocket request/result/event records and the contract registry.
-- `rez-sdk` owns the app-facing client facade and capability APIs.
+- `rez-sdk` owns the app-facing client facade and capability APIs (including `WalletCapability` and `HandlesCapability`).
 - `rez-chat` owns chat bridge records and app semantics.
+- `rez-contracts` owns the on-chain Solidity contract suite — the canonical REZ ERC-20 token and machinery (published as `@rezprotocol/contracts`). It is consumed by `rez-node`'s chain-mode settlement layer via the generated ABI export; it defines no WebSocket protocol surface.
 
 ## SDK Lexicon
 
@@ -49,8 +50,17 @@ The current generated contract set includes:
 | `capability.*` | Capability issue/revoke/list operations |
 | `node.*` | Node status and identity metadata |
 | `peer.link.*` | Peer link invite, accept, and status flow |
-| `handle.*` | Handle claim/lookup operations |
+| `handle.*` | Handle claim/lookup/renew operations (`handle.renew` is a paid service) |
+| `settlement.*` | Wallet balance and signed-receipt queries (`settlement.balance`, `settlement.receipts`) — own-account only |
+| `pricing.list` / `catalog.list` | Paid-service price preview and `PaidServiceSpecV1` catalog discovery (free) |
+| `storage.persist` | Paid persistent-storage commitment (later tier) |
 | `delivery.ack` | Delivery acknowledgement |
+
+Paid families (`handle.register`/`handle.renew`, `storage.persist`, and future
+service ids) are gated through `ServiceGate` on the node, which runs
+capability → pricing → atomic `settleService` and returns `PAYMENT_REQUIRED`
+when the payer is underfunded. See the [token economy whitepaper](../../rez-token-whitepaper.html)
+for the full economic model.
 
 Run `npm run docs:contracts` to verify the generated registry doc is current.
 

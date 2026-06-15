@@ -32,7 +32,26 @@ The protocol and its implementation have been subjected to three internal advers
 **Current status (2026-05-15):**
 - All findings against live systems from Passes 1 and 2 are closed.
 - One open low-severity issue (LOW-6: no per-peer DHT-store quota) remains tracked as non-blocking; mitigation is in design.
-- Findings against the handle and settlement systems are tabled (those systems are not live nor fully designed) and will be re-opened when those systems return.
+
+**Settlement / token economy (updated 2026-06-15):**
+The handle and settlement systems are now **fully designed** — the REZ token
+economy (paid services, atomic multi-leg settlement, credit classes,
+`networkId` binding, trust-graph relay recognition, proof-of-replication
+storage, non-upgradeable custody vaults, and least-privilege governance) has
+been **deeply internally reviewed** across many design and adversarial rounds.
+See the [token economy whitepaper](../../rez-token-whitepaper.html) for the model.
+Two caveats are load-bearing and stated plainly:
+
+- The economic system is **internally reviewed, not externally audited.** A
+  formal third-party security audit is required before the mainnet token deploy.
+- No real value is at risk before mainnet: value-bearing beta runs on off-chain
+  Service Credits, and chain mode runs on testnet (test REZ) until the single
+  mainnet event. Economic teeth (slashing, recognition gating) phase in via an
+  enforcement mode (`shadow` → `advisory` → `enforce`), with slash rate 0 during
+  beta.
+
+Findings against these surfaces are re-opened and tracked as each tier ships
+and returns to live review.
 
 The full audit log is maintained privately and shared with security researchers under coordinated-disclosure as appropriate. Past findings will be published in CVE-style advisories once a coordinated disclosure window has elapsed.
 

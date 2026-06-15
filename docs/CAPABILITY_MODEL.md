@@ -168,7 +168,15 @@ After this rework:
 
 Any default-signer / default-pubkey baked into these primitives that assumes node-authority must be audited and removed.
 
-## 11) Out of scope for v1
+## 11) Paid-service authorization
+
+The token economy ("postage, not equity"; see [`rez-token-whitepaper.html`](../../rez-token-whitepaper.html)) adds a paid-services layer. It does **not** change the trust root defined above.
+
+- **The inbox-claimant trust root is unchanged.** Capabilities still trace back to the keypair that claimed the inbox; the node still signs nothing.
+- **Paid-service gating is a parallel authorize() gate layered on caps, not a new cap action.** It does not extend the action vocabulary (`admin | connect | grant | post | read | write`). Instead, the `ServiceGate` runs, at one enforcement point via `ProtocolContext.authorize()`: capability-check → pricing → `settleService`. The cap check answers "is this principal allowed to perform the action?"; the settlement leg answers "has it been paid for?". A request that passes the cap check but is underfunded fails closed with `PAYMENT_REQUIRED`.
+- **Payer identity ≠ claimant key.** The payer/wallet is the session-authenticated *account* identity (`rez:acct:*`), an SDK-side concept, not the inbox claimant key that anchors capabilities. The two identities are distinct and serve different roles: the claimant key authorizes operations on an inbox; the account identity is debited for paid services.
+
+## 12) Out of scope for v1
 
 - Delegation use cases (covered in §3 but not exercised). Sub-cap signing, multi-link chain verification, and constraint enforcement (expiry, max uses) are implemented and tested, but no v1 product surface produces or consumes a sub-cap.
 - Capability revocation lists. v1 relies on `expiresAtMs` for time-bounded delegation. Revocation-before-expiry needs a published-revocations record published by the inbox owner; design deferred.

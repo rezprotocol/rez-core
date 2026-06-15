@@ -466,7 +466,8 @@
     <li><a href="#s14">Security Analysis</a></li>
     <li><a href="#s15">Comparison with Other Systems</a></li>
     <li><a href="#s16">Cryptographic Reference</a></li>
-    <li><a href="#s17">Future Work</a></li>
+    <li><a href="#s17">Economic Model &amp; Token Incentives</a></li>
+    <li><a href="#s18">Future Work</a></li>
   </ol>
 </nav>
 
@@ -511,6 +512,7 @@
   <li><strong>Metadata privacy.</strong> Onion routing prevents any single relay from correlating sender and recipient.</li>
   <li><strong>Forward secrecy &amp; break-in recovery.</strong> The Double Ratchet protocol ensures that compromise of current keys cannot decrypt past or future messages.</li>
   <li><strong>Async delivery.</strong> Store-and-forward inboxes ensure data is delivered even when recipients are offline.</li>
+  <li><strong>Postage, not equity.</strong> The mesh is sustained by usage-priced <em>postage</em> &mdash; a consumable utility credit spent on services that cost real resources &mdash; not by donation, subscription, or speculation. Core messaging stays free forever; only expensive services (handles, persistent storage, large media, hosting) are priced. See <a href="#s17">&sect;17</a>.</li>
 </ul>
 
 <!-- ═══ SECTION 2 ═══════════════════════════════════════════════════════════ -->
@@ -524,6 +526,7 @@
   <tr><td><code>rez-sdk</code></td><td>Client SDK, transport, session management, E2EE</td><td>Client &mdash; key material lives here</td></tr>
   <tr><td><code>rez-ui</code></td><td>Reusable UI components, theme, DOM utilities</td><td>Presentation &mdash; no protocol knowledge</td></tr>
   <tr><td><code>rez-chat</code></td><td>First application: encrypted messaging, contacts, groups</td><td>App &mdash; composes SDK + UI</td></tr>
+  <tr><td><code>rez-contracts</code></td><td>Foundry/Solidity suite: the immutable REZ ERC-20, settlement &amp; emission machinery, non-upgradeable custody vaults (published as <code>@rezprotocol/contracts</code>)</td><td>On-chain &mdash; ownerless token + least-privilege roles; rules verifiable by anyone</td></tr>
 </table>
 
 <h3>2.2 Data Flow</h3>
@@ -1568,6 +1571,29 @@ Maximum frame size: 32 KB + 4 bytes header</code></pre>
   <tr><td>Data-at-rest encryption</td><td>AES-256-GCM with HKDF-derived key from node identity</td></tr>
 </table>
 
+<h3>14.3 Economic Adversaries</h3>
+<p>
+  The token economy (<a href="#s17">&sect;17</a>) introduces a distinct class of adversary: one that attacks the
+  <em>incentive</em> layer rather than the cryptography. The crypto core above is unchanged; these are the
+  economic-glue dispositions, with accepted residuals stated honestly. The full treatment is in the
+  <a href="../../rez-token-whitepaper.html">token economy white paper</a>.
+</p>
+<table>
+  <tr><th>Adversary</th><th>Rez Mitigation</th></tr>
+  <tr><td>Within-network Sybil relays (flood of fake relays to drain the rewards pool)</td><td>Bounded by trust-graph recognition. Rank is <em>not</em> buyable with hardware or uptime &mdash; objective self-facts only make a relay eligible; rank requires being demanded/vouched-for by other recognized relays. Rank decays and saturates, and circular flows are discounted.</td></tr>
+  <tr><td>Private fork running its own mesh</td><td>Isolated by <code>networkId</code>. Only artifacts carrying the official, pre-genesis <code>networkId</code> can earn or convert; a private fork runs on inert "Monopoly money" with no claim on the official pool.</td></tr>
+  <tr><td>Handle squatting / land-grab of <code>@handles</code></td><td>Handles are paid (postage cost), first-come, with a freshness tiebreak &mdash; squatting at scale costs real, recurring postage and confers no resale rights over the namespace.</td></tr>
+  <tr><td>Wash-trade emissions (pay yourself for a service to manufacture rewards)</td><td>Raw paid-service receipts are revenue-only, never an emission input. Emissions count only consumer-signed service acks, and self-owned flows are circularity-discounted; a fee paid to yourself nets to &asymp; 0.</td></tr>
+  <tr><td>Storage dedup / wormhole (claim k replicas while storing one copy)</td><td>Proof-of-replication: each replica is a unique per-relay-key encoding, so k replicas provably cost k&times; real bytes. Self-stored bytes never emit.</td></tr>
+  <tr><td>Governance capture (a well-resourced actor seizes control)</td><td>Blast radius bounded: the token is immutable and ownerless, undistributed pools sit in non-upgradeable custody vaults, capabilities are split into least-privilege timelocked roles, and a fork-to-new-<code>networkId</code> is the ultimate exit. REZ confers no governance vote, so supply can't be bought into power.</td></tr>
+</table>
+<h4>Accepted residuals (economic)</h4>
+<ul>
+  <li><strong>Collusion ring of genuinely-bootstrapped relays.</strong> Bounded by loop discounts, decay, the fixed pool, and the dispute window &mdash; the same irreducible residual any reputation system carries; monitored, not eliminated.</li>
+  <li><strong>Seed / multisig trust-root compromise.</strong> Bounded by threshold multisig, multi-operator published seeds, full transparency, and timelocks; decentralizes further via role-swap and the fork backstop.</li>
+  <li><strong>Majority-of-real-service attacker.</strong> An actor who genuinely provides the majority of real, diverse, demanded service cannot be defeated by the fork backstop &mdash; an "attack" whose cost was running the most useful infrastructure. Documented and accepted.</li>
+</ul>
+
 <!-- ═══ SECTION 15 ══════════════════════════════════════════════════════════ -->
 <h2 id="s15">15. Comparison with Other Systems</h2>
 
@@ -1739,8 +1765,164 @@ Maximum frame size: 32 KB + 4 bytes header</code></pre>
 </table>
 
 <!-- ═══ SECTION 17 ══════════════════════════════════════════════════════════ -->
-<h2 id="s17">17. Future Work</h2>
+<h2 id="s17">17. Economic Model &amp; Token Incentives</h2>
 
+<p>
+  A decentralized relay mesh has to pay for itself. Relays burn real disk, bandwidth, and uptime; without a
+  sustainable incentive the network is a charity that lasts exactly as long as its volunteers do. The canonical
+  design of Rez closes that gap with <strong>REZ</strong>, a fixed-supply utility credit that pays the mesh for the
+  services it provides. This section gives the protocol-level summary; the full economic treatment &mdash; allocation,
+  custody, settlement internals, the chain-settlement payment channel, and the governance threat model &mdash; lives
+  in the companion <a href="../../rez-token-whitepaper.html"><strong>Rez Token Economy white paper</strong></a>.
+</p>
+
+<div class="callout callout-warn">
+  <p><strong>Design and roadmap, not live mainnet.</strong> The economic system is described as the system's
+  <em>design</em> and delivery plan. Beta runs on off-chain Service Credits; on-chain modes run on test networks with
+  test tokens. On-chain emissions, 1:1 conversion, and chain settlement are <strong>not operating in production
+  today</strong> &mdash; they are testnet-only until mainnet. The economic system has been <strong>internally
+  reviewed but not externally audited</strong>; a formal third-party audit precedes any mainnet deployment.
+  Regulatory framing below is statement of design intent, not legal advice.</p>
+</div>
+
+<h3>17.1 Thesis: Postage, not Equity</h3>
+<p>
+  Core messaging is <strong>free, forever</strong>. REZ buys only the things that cost a relay real resources:
+  memorable <code>@handles</code>, persistent storage, large media and files, and content hosting. REZ is
+  <em>postage</em> &mdash; a consumable credit you spend to send something the network must carry &mdash; not a share
+  you hold expecting it to appreciate. Value tracks <em>usage</em> (the velocity of postage spent on real services),
+  never engineered scarcity. There is no staking and no yield: operators who run real infrastructure earn REZ;
+  everyone else simply spends it.
+</p>
+
+<h3>17.2 The REZ Token</h3>
+<p>
+  REZ is a fixed-supply, immutable ERC-20 utility token on Base (an Ethereum L2).
+  <strong>1,000,000,000 REZ are minted exactly once at genesis and never again.</strong> The token contract has
+  <strong>no mint, no owner, no pause, no blacklist, no fee-on-transfer, and no upgrade path</strong>, and there is
+  <strong>no staking, no yield, and no founder/team allocation</strong> &mdash; each a concrete, testable invariant.
+</p>
+<table>
+  <tr><th>Pool</th><th>Amount</th><th>Purpose</th></tr>
+  <tr><td>Relay rewards</td><td>500M &middot; 50%</td><td>Earned over a halving schedule by carrying traffic and storing demanded data</td></tr>
+  <tr><td>Treasury / ecosystem</td><td>300M &middot; 30%</td><td>Discretionary grants for contributors and founders, on a capped, timelocked drip</td></tr>
+  <tr><td>Conversion reserve</td><td>100M &middot; 10%</td><td>Backs 1:1 conversion of eligible pre-mainnet credits, rule-bound and hard-capped</td></tr>
+  <tr><td>Liquidity</td><td>100M &middot; 10%</td><td>Protocol-owned and locked</td></tr>
+</table>
+<p>
+  Undistributed pools do not sit in a multisig that could move them &mdash; they sit behind <strong>non-upgradeable
+  custody vaults</strong> that enforce their own release rules in immutable code. "No rug pull" is therefore a
+  structural property, not a promise.
+</p>
+
+<h3>17.3 Beta Settlement: Off-chain Service Credits</h3>
+<p>
+  Before mainnet, the economy runs on off-chain <strong>Service Credits</strong> issued by a
+  <code>LocalSettlementProvider</code>, in two conserved classes:
+</p>
+<ul>
+  <li><strong>Convertible</strong> &mdash; issued only for valid purchase or conversion-reserve events, counted against
+  a global liability ledger hard-capped at the 100M conversion reserve, and convertible 1:1 to REZ at mainnet.</li>
+  <li><strong>Promotional</strong> &mdash; starter allowances and operator grants; spendable on services but
+  <strong>never convertible</strong>. This kills the "farm free credits, launder into REZ" vector.</li>
+</ul>
+<p>
+  Paying for a service is one atomic, multi-leg operation &mdash; <code>settleService</code> at the
+  <code>ServiceGate</code> &mdash; that debits the payer and credits the serving relay (and, if ever enabled, a capped
+  protocol fee) under a single <code>settlementId</code>. The canonical record is <code>SettlementEntryV1</code>,
+  written to an append-only <code>SettlementJournal</code> that is the single source of truth for balances. An
+  underfunded request fails closed with <code>PAYMENT_REQUIRED</code>; money is only moved, never created or
+  destroyed.
+</p>
+
+<h3>17.4 Network Identity: <code>networkId</code></h3>
+<p>
+  Because the code is open, anyone can spin up a parallel mesh &mdash; and that is harmless to REZ. Every economic
+  artifact (receipts, attestations, storage proofs) is bound to an immutable, pre-genesis
+  <strong><code>networkId</code></strong>. Rewards and conversion honour <em>only</em> artifacts carrying the official
+  id. A private fork therefore runs on inert "Monopoly money": real value flows only on the official network.
+</p>
+
+<h3>17.5 How Relays Earn</h3>
+<p>
+  Anyone may run a relay and carry traffic, freely and permissionlessly. But <em>earning REZ</em> requires
+  recognition by the trust graph and is deliberately hard to fake. The new <code>TrustGraph</code> supersedes the
+  earlier linear <code>ReputationScorer</code>. The governing principle:
+</p>
+<div class="callout">
+  <p>Objective facts about yourself &mdash; disk space, uptime &mdash; only make you <strong>eligible</strong>. Rank and
+  emissions require being <strong>demanded and vouched-for by other already-recognized relays</strong>.</p>
+</div>
+<p>
+  Rank is computed EigenTrust-style, seeded from a published, multi-operator set of neutral seed relays. There is
+  <strong>no bond and no stake</strong> &mdash; the barrier is sustained real service over time, never capital. Rank
+  <strong>decays</strong> (you can't bank it and coast) and <strong>saturates</strong> (no runaway incumbent). The only
+  emission inputs are:
+</p>
+<ul>
+  <li><strong>Settlement-verified service acks</strong> (<code>ServiceAckV1</code>) from relay-to-relay demand, weighted
+  by the consuming relay's trust rank and discounted for circular flows.</li>
+  <li><strong>Demand-bound proof-of-replication storage</strong>, trust-weighted and circularity-discounted.</li>
+  <li><strong>Capped public-good storage</strong> &mdash; storing approved public datasets earns a metered reward but
+  builds <em>no</em> trust-graph rank.</li>
+</ul>
+<p>
+  What is <strong>never</strong> an emission input: raw message volume, raw paid-service receipts (a fee paid to
+  yourself nets to nothing), self-stored bytes, and bare uptime.
+</p>
+
+<h3>17.6 Proof-of-Replication Storage</h3>
+<p>
+  Paid and emission-bearing storage uses <strong>proof-of-replication</strong>: each replica is a unique
+  per-relay-key encoding of the data, so claiming <em>k</em> replicas provably requires storing <em>k</em>&times; the
+  real bytes. This closes storage dedup and "wormhole" attacks and reconciles the mesh's storage with a paid,
+  emission-backed model rather than pure volunteer donation.
+</p>
+
+<h3>17.7 Governance &amp; Capture Resistance</h3>
+<p>
+  <strong>REZ is a non-governance token</strong> &mdash; there is no token-weighted voting anywhere, so buying supply
+  buys postage, not power. Capabilities are split into <strong>least-privilege roles</strong>, each behind its own
+  public timelock; compromising one yields one delayed, visible capability, never the whole network. The immutable
+  token and non-upgradeable custody vaults bound the blast radius of any capture. The ultimate backstop is the
+  <strong>fork</strong>: the honest community can re-seed the trust root and recompute reward roots under a new
+  <code>networkId</code>, dropping a captured actor's accumulated rank.
+</p>
+<div class="callout">
+  <p>The deepest invariant of the design: <strong>the token is immutable, governance is constrained, clients are
+  verifiable, roots are recomputable, and legitimacy can move if authority is captured.</strong></p>
+</div>
+
+<h3>17.8 Delivery Roadmap</h3>
+<p>
+  The economy ships in tiers, each independently useful, with one safety property running through all of them:
+  <strong>no real value is at risk before mainnet.</strong>
+</p>
+<table>
+  <tr><th>Tier</th><th>What ships</th></tr>
+  <tr><td>T1</td><td>Wallet + paid <code>@handles</code> on local credits</td></tr>
+  <tr><td>T2</td><td>Solidity contract suite on Base Sepolia (with no-rug invariant tests)</td></tr>
+  <tr><td>T3</td><td>Chain settlement mode with test REZ via a non-custodial payment channel</td></tr>
+  <tr><td>T3.5</td><td>Proof-of-replication</td></tr>
+  <tr><td>T4</td><td>Paid persistent storage + slashing</td></tr>
+  <tr><td>T5</td><td>Large files + k-replica distributed storage</td></tr>
+  <tr><td>T5.5</td><td>Trust graph (shadow &rarr; advisory &rarr; enforce)</td></tr>
+  <tr><td>T6</td><td>Mainnet + 1:1 credit conversion &mdash; the first and only permanent deploy</td></tr>
+</table>
+
+<!-- ═══ SECTION 18 ══════════════════════════════════════════════════════════ -->
+<h2 id="s18">18. Future Work</h2>
+
+<div class="future-item">
+  <span class="future-badge badge-planned">PLANNED</span>
+  <div>
+    <strong>Token economy (active workstream).</strong>
+    The REZ economic system (<a href="#s17">&sect;17</a>) is in active delivery against the tiered roadmap &mdash;
+    paid <code>@handles</code> on off-chain credits, the testnet Solidity suite, chain settlement, proof-of-replication,
+    paid storage, and the trust graph &mdash; culminating in mainnet deployment and 1:1 credit conversion. See the
+    <a href="../../rez-token-whitepaper.html">Rez Token Economy white paper</a> for the full design.
+  </div>
+</div>
 <div class="future-item">
   <span class="future-badge badge-planned">PLANNED</span>
   <div>

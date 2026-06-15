@@ -25,6 +25,15 @@ synonyms and must not be collapsed.
 | `senderAccountId` | The account that authored an outbound message / mutation | Encrypted wire payloads, store messages |
 | `peerAccountId` | The other party in a peer-link or direct thread | `peer-link.updated.peerAccountId`, `Thread.peerAccountId`, mutation-dispatch context |
 
+**Wallet / settlement account form.** The settlement layer keys balances,
+receipts, starter grants, and the payer side of every paid service on the
+**session-authenticated account identity** (`accountIdentityPublicKeyB64`,
+exposed as `ctx.ownerPublicKeyB64`) — *not* the inbox-claimant key. The ledger
+stores and displays it under the derived `rez:acct:*` form
+(`deriveAccountIdFromPublicKey`, `rez-core/src/identity/Identity.js`). There is
+one wallet per account; multiple unlinkable inbox-claimant keys share it. In
+settlement contexts, `accountId` is this `rez:acct:*` form.
+
 Banned synonyms in this family:
 
 | Banned | Use instead | Reason |
@@ -86,6 +95,31 @@ Banned synonyms in rez-chat:
 | Peer-link session | `sessionId` |
 | Relay key authorization id | `relayKeyId` |
 | Registered handle | `handle` |
+
+### Token-economy / settlement identifiers
+
+These name the economic layer (paid services, settlement, relay recognition).
+Add new ones here before writing code, same as any other identifier.
+
+| Concept | Canonical name | Notes |
+|---|---|---|
+| Official network identifier | `networkId` | Immutable pre-genesis constant bound into the signed body of every economic artifact (receipts, attestations, escrow records, relay descriptors, storage proofs). Not derived from any contract address. |
+| One atomic settlement (its linked legs) | `settlementId` | Distinct from `messageId`/`eventId`. Shared by the debit + relay-credit (+ optional fee) legs of one `settleService`. |
+| Idempotency key for a settlement | `idempotencyKey` | Deterministic hash over the settlement inputs + `callerOpId`; makes retries no-ops. |
+| Caller-supplied op id for repeatable operations | `callerOpId` | A retry reuses the same id; a distinct operation (e.g. a second renewal) uses a fresh one. Threaded end-to-end (SDK → bridge → `ctx.authorize` → `settleService`). |
+| Paid-service identifier | `serviceId` | e.g. `handle.register`, `handle.renew`, `storage.persist`, `file.large`. The key of a `PaidServiceSpecV1`. |
+| Per-commitment escrow bond | `escrowId` | Keys an escrow row; bond posted from a relay's earned working balance. |
+| Storage commitment | `objectId` (+ `contentHash`) | `contentHash` is the content/Merkle root PoRep proves; `objectId` is the label. |
+| Convertible-credit issuance entry | `issuanceId` | Globally single-use across the signed issuance ledger; applied to exactly one `(ledgerRelayId, accountId)`. |
+
+### Relay identity vs. economic recognition
+
+| Name | Role |
+|---|---|
+| `relayKeyId` | Relay key authorization id — the **transport/protocol** identity of a relay (peer auth, descriptors, receipts). Unchanged; permissionless. |
+| `recognizedRelayKey` | The **economic** recognition identity recorded in `RezRelayRegistry`. It is the **same value** as `providerRelayId` in settlement records — one canonical identifier, no separate mapping. Recognition is an economic layer on top of the permissionless transport identity. |
+| `providerRelayId` | The relay being **credited/earning** in a `SettlementEntryV1` / `ServiceAckV1`. Equals `recognizedRelayKey` for recognized relays. |
+| `consumerRelayId` | The recognized **relay** that received/vouched-for a service (optional/nullable; present only for relay↔relay emission-bearing settlements, omitted for user-paid services). Never a user account. |
 
 ---
 
@@ -213,8 +247,9 @@ to the allowlist.
 |---|---|
 | rez-sdk | `accountId` derivation; brand-typed asserters (Phase 5) |
 | rez-core | `peerLinkId`, `sessionId` |
-| rez-node | `inboxId`, `eventId` (envelope-level), `relayKeyId` |
+| rez-node | `inboxId`, `eventId` (envelope-level), `relayKeyId`, `settlementId`, `escrowId`, `recognizedRelayKey`/`providerRelayId`/`consumerRelayId`, `serviceId` |
 | rez-chat | `threadId`, `messageId`, `groupId`, `transferId`, `handle` |
+| rez-contracts | `networkId` (canonical value recorded at genesis), on-chain registry/payout identifiers |
 | rez-ui | (no identifier ownership; consumes records only) |
 
 When an identifier is owned by one workspace but used in another, the

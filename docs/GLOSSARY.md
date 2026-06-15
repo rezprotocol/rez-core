@@ -84,7 +84,7 @@ Definitions of REZ-specific terms used in rez-core and related documentation. Sh
 
 **Gateway** — Local ingress/egress node; connects the node to the network. **RGatewayRole** defines the contract: `getGatewayId()`, `getTransport()`, `getRuntime()`, `start()`, `stop()`.
 
-**Relay** — Node that forwards packets for others. Learns only previous and next hop when used with onion routing. **RRelayRole** defines the contract: `getRelayId()`, `getTransport()`, `getRuntime()`, `start()`, `stop()`.
+**Relay** — Node that forwards packets for others. Learns only previous and next hop when used with onion routing. **RRelayRole** defines the contract: `getRelayId()`, `getTransport()`, `getRuntime()`, `start()`, `stop()`. Anyone may run a relay and carry traffic freely (core messaging is free, permissionless); *earning REZ* additionally requires trust-graph recognition (see **Token economy & settlement**).
 
 **RoutingTable** — Resolves a destination to the next hop. **RRoutingTable** abstract: `resolveNextHop(to)`.
 
@@ -177,6 +177,51 @@ Definitions of REZ-specific terms used in rez-core and related documentation. Sh
 **OnionKeyRecordV1** — Record holding a relay’s onion key material for v1.
 
 **Onion path** — Ordered list of relays used to build or peel an onion packet.
+
+---
+
+## Token economy & settlement
+
+The economic layer that pays the relay mesh for paid services. Core messaging
+stays free; handles, persistent storage, large media, and content hosting are
+paid. Thesis: **"Postage, not equity."** Full treatment in the
+[token economy whitepaper](../../rez-token-whitepaper.html).
+
+**REZ** — The fixed-supply (1,000,000,000, minted once at genesis, never again) ERC-20 utility token on Base (Ethereum L2). Immutable: no mint, owner, pause, blacklist, fee-on-transfer, or upgrade path. No staking, no yield, no founder allocation. A consumable utility credit ("postage"), not equity.
+
+**Service Credit** — Off-chain balance unit used during beta (settled by `LocalSettlementProvider`) in place of on-chain REZ. Carries a **credit class**.
+
+**Credit class** — Either `convertible` (issued only by the canonical issuance authority for purchase/conversion events; counted against the 100M conversion reserve via the `CreditLiabilityLedger`; converts 1:1 to REZ at mainnet) or `promotional` (starter allowance + operator grants; spendable but never convertible). Class is conserved through every transfer/escrow/slash and affects conversion/liability only — never emissions.
+
+**Paid service** — A metered service gated behind payment. Each is declared by one **`PaidServiceSpecV1`** (`serviceId`, unit, default price, commitment-backed?, capability scope, description).
+
+**ServiceCatalog** — A relay's registry of the `PaidServiceSpecV1`s it offers. `descriptor.meta.services` is the gossiped, priced projection of it.
+
+**ServiceGate** — The single enforcement point for paid services: runs capability check → pricing → atomic `settleService`, returning `PAYMENT_REQUIRED` when the payer is underfunded.
+
+**settleService** — The atomic, multi-leg settlement primitive: one operation that debits the payer and credits the serving relay (plus an optional protocol-fee leg), all sharing one `settlementId`. Computes the credit-class split (promotional-first).
+
+**SettlementProvider** — Abstract settlement backend. `LocalSettlementProvider` (KV-backed, off-chain credits) in beta; `ChainSettlementProvider` (deposit-anchored, testnet REZ) for chain mode.
+
+**SettlementJournal** — Append-only journal of `SettlementEntryV1` records; the source of truth for balances, replay, audit, and conversion. **ReceiptLog** is a capped, user-facing projection of it.
+
+**SettlementEntryV1** — The canonical settlement record everything verifies against (gross/relay/fee amounts, per-class splits, price snapshot, `networkId`, idempotency key). Signed receipts (`DebitReceiptV1`, `CreditReceiptV1`, `EscrowReceiptV1`, `ReleaseReceiptV1`, `SlashReceiptV1`) are projections of it.
+
+**networkId** — Immutable pre-genesis constant bound into the signed body of every economic artifact (settlement receipts, peer attestations, escrow records, relay descriptors, storage proofs). Only official-`networkId` artifacts earn emissions or convert; a private fork's activity is inert ("Monopoly money").
+
+**Recognized relay** — A relay whose activity counts toward real REZ, recorded in the `RezRelayRegistry` (config-backed in beta, on-chain later) and keyed by **`recognizedRelayKey`** (the same value as `providerRelayId` in settlement records).
+
+**Trust graph** — The EigenTrust-style relay-reputation system (`TrustGraph`) seeded from a published, neutral, multi-operator seed-relay set; rank flows along recognized relay-consumer relationship edges, decays, and saturates. It **supersedes** the linear `ReputationScorer`, which becomes an input feature. Rank is the basis for recognition and emission weighting; it is not buyable with disk or uptime.
+
+**Emissions** — The 500M relay-rewards pool, distributed over a 10-year halving. Earned only by being demanded/vouched-for by other recognized relays — via settlement-verified **`ServiceAckV1`**s and demand-bound storage proofs (trust-weighted, circularity-discounted), plus capped public-good storage. Never from raw message volume, raw paid receipts, self-stored bytes, or bare uptime.
+
+**Proof-of-replication (PoRep)** — Storage proof where each replica is a unique per-relay-key encoding, so k claimed replicas require k× real bytes (defeats dedup/wormhole). Proves disk cost (eligibility), not demand.
+
+**Escrow bond** — A per-commitment performance bond posted from a relay's *earned working balance* (transient, consumed-or-returned) — the accountability mechanism for expensive commitments. There is **no** standing stake.
+
+**Custody vault** — A non-upgradeable contract that holds an undistributed pool and adjudicates its own release rules: `TreasuryVault` (drip + caps + timelock), `RewardsVault` and `ConversionDistributor` (finalized-root + dispute-window + proof + claimed-bitmap). Upgradeable machinery logic can decide distribution but cannot drain the pools.
+
+**rez-contracts** — The Foundry/Solidity repo (published as `@rezprotocol/contracts`) holding the immutable `RezToken`, the upgradeable machinery, and the non-upgradeable custody vaults.
 
 ---
 

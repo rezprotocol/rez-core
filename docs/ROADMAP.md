@@ -137,6 +137,40 @@ Correlation IDs across runtime layers.
 
 ---
 
+## Token Economy (Tiered)
+
+The REZ token economy ("postage, not equity") ships in tiers, each independently useful. Canonical design lives in [`rez-token-whitepaper.html`](../../rez-token-whitepaper.html); the on-chain suite is owned by `rez-contracts`.
+
+**Beta safety property — runs through all tiers:** no real value is at risk before mainnet (Tier 6). Value-bearing beta runs on off-chain credits; on-chain modes run on testnets with test tokens. Every economic "tooth" (slashing, recognition gates) ships in a `shadow → advisory → enforce` sequence so it can be watched long before it can affect anyone. `slashBps` defaults to 0.
+
+### Tier 1 — Wallet + paid @handles
+A credits balance, starter allowance, and claim/renew/release of paid `@handles` — end-to-end in the chat app on local credits. Relays earn fee revenue here, not emissions yet.
+
+### Tier 2 — Solidity contract suite (Base Sepolia)
+The full immutable token + machinery deployed to testnet, including the no-rug invariant tests proving the token has no mint/owner/pause/upgrade surface.
+
+### Tier 3 — Chain-settlement mode
+Users deposit test REZ; relays track micro-debits off-chain and batch-settle on-chain via a non-custodial, deposit-anchored payment channel. Same chat flow, no migration.
+
+### Tier 3.5 — Proof-of-replication
+Real proof that k replicas mean k× real bytes.
+
+### Tier 4 — Commitments + executed slashing + paid persistent storage
+Per-commitment escrow bonds, executed slashing (still default-off), and paid persistent storage.
+
+### Tier 5 — Paid large files + distributed k-replica storage
+Paid large files carried by distributed k-replica storage.
+
+### Tier 5.5 — Trust graph
+The Sybil-resistant recognition and emission engine (`TrustGraph`), shipped in shadow mode first and validated against adversarial fixtures before it gates anything.
+
+### Tier 6 — Mainnet + conversion
+Recognition gates flip to `enforce`, epoch emissions go live, the token deploys to mainnet, and eligible `convertible` credits convert 1:1 to REZ. The first and only permanent deploy.
+
+**Gate:** mainnet (Tier 6) is gated on a formal **external** security audit. The design is internally reviewed but not externally audited.
+
+---
+
 ## Rules
 
 - Deferred items must not be implemented without explicit approval.

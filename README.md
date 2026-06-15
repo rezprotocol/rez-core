@@ -10,7 +10,7 @@ Cryptographic primitives, wire-protocol encoding, and canonical record schemas f
 
 - **Cryptographic primitives** — Ed25519 signing, X25519 Diffie-Hellman, AES-256-GCM AEAD, HKDF-SHA-256, scrypt, and the X3DH + Double Ratchet construction that powers Rez's E2EE.
 - **Wire-protocol encoding** — canonical JSON serialization, versioned record envelopes, signature/MAC framing.
-- **Domain records** — versioned, validated schemas for identities, peer-link payloads, group operations, and the protocol-level capability model.
+- **Domain records** — versioned, validated schemas for identities, peer-link payloads, group operations, the protocol-level capability model, and the paid-service / settlement records (`PaidServiceSpecV1`, `SettlementEntryV1`, `ServiceAckV1`) plus the message-type constants for the settlement and catalog families (`settlement.balance`, `settlement.receipts`, `pricing.list`, `catalog.list`, `handle.renew`, `storage.persist`).
 - **Glossary + invariants** — shared vocabulary and architecture guarantees the rest of the ecosystem builds on.
 
 ---
@@ -78,6 +78,7 @@ For the protocol-level concepts these primitives implement, see the [documentati
 - [**rez-node**](https://github.com/rezprotocol/rez-node) — relay node runtime; serves the protocol over WebSocket and federates with other nodes
 - [**rez-ui**](https://github.com/rezprotocol/rez-ui) — shared UI framework for Rez applications
 - [**rez-chat**](https://github.com/rezprotocol/rez-chat) — reference desktop chat application
+- [**rez-contracts**](https://github.com/rezprotocol/rez-contracts) — Solidity contract suite for the REZ token economy (fixed-supply ERC-20 on Base + settlement machinery); published as `@rezprotocol/contracts`
 
 ---
 

@@ -35,6 +35,25 @@ For the full cryptographic specification, see the [white paper](./WHITEPAPER.htm
 
 ---
 
+## Economic Threat Model
+
+The Rez token economy (REZ — "postage, not equity"; see [`rez-token-whitepaper.html`](../../rez-token-whitepaper.html)) adds a paid-services and emissions layer on top of the protocol. These are **economic-layer protections** that sit atop the unchanged cryptographic core; they do not relax the "untrusted infrastructure" stance — relays remain untrusted carriers of ciphertext. The adversaries below target rewards and conversion, not message confidentiality.
+
+| Threat | Disposition |
+|---|---|
+| **Within-network Sybil relays** | Trust-graph recognition (EigenTrust over neutral published seeds, new `TrustGraph` superseding the linear `ReputationScorer`): rank requires being *demanded and vouched-for* by already-recognized relays. Disk and uptime confer eligibility only — rank cannot be bought with hardware or uptime, and there is no token bond. Rank **decays** (can't bank and coast) and **saturates** (no runaway incumbent). |
+| **Private fork of the network** | Every economic artifact is bound to an immutable `networkId`; only official-`networkId` artifacts earn or convert. A private mesh runs on "Monopoly money" with no claim on the official economy. |
+| **Wash-trading for emissions** | Raw paid-service receipts are revenue-only and are **never** an emission input. Emissions credit only consumer-signed `ServiceAckV1`s, trust-weighted and circularity-discounted, so a self-owned flow (paying yourself) nets ≈ 0. Raw message volume, self-stored bytes, and bare uptime are likewise excluded. |
+| **Handle squatting** | `@handles` are paid, first-come, with a freshness tiebreak — squatting carries real recurring cost and cannot be bulk-reserved for free. |
+| **Storage dedup / wormhole** | Demand-bound proof-of-replication (per-key encoding, tight time bounds) ensures k replicas mean k× real bytes; deduped or wormholed "storage" fails the proof. |
+| **Collusion ring of genuinely-bootstrapped relays** | **Irreducible residual** — bounded by reciprocal-loop discounting, decay, the fixed pool, and the dispute window. Same class of residual as any reputation system; documented and accepted, monitored. |
+
+The economic invariants (atomic settlement, fail-closed `PAYMENT_REQUIRED` gating, networkId binding, credit-class conservation, immutable token / non-upgradeable custody) are specified in [`ARCHITECTURE_GUARANTEES.md`](./ARCHITECTURE_GUARANTEES.md) §5.
+
+**Honesty caveats.** The economic design is internally reviewed but **not externally audited**; a formal third-party security audit is required before any mainnet deployment. Several residual risks (collusion of genuinely useful relays, trust-root compromise, a majority-honest-service attacker) are irreducible and are documented and accepted, not eliminated. Regulatory framing in the whitepaper is design intent, not legal advice — counsel review is required before any public-facing claim.
+
+---
+
 ## Cryptographic Primitives
 
 | Algorithm | Key size | Use | Standard |

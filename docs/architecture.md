@@ -5,12 +5,13 @@ Rez is a JavaScript monorepo with strict package boundaries. The active workspac
 | Package | Owner |
 |---|---|
 | `rez-core` | Protocol primitives, records, crypto, codecs, storage abstractions |
-| `rez-node` | Relay/node runtime, WebSocket gateway, TCP mesh, server-side protocol records |
+| `rez-node` | Relay/node runtime, WebSocket gateway, TCP mesh, server-side protocol records, service settlement and trust-graph recognition |
 | `rez-sdk` | Client facade, auth/session helpers, uplink pool, browser/server SDK adapters |
 | `rez-chat` | Application runtime, chat workflows, account UI, embedded node host |
 | `rez-ui` | UI framework primitives and assets only |
+| `rez-contracts` | Foundry/Solidity contract suite (`@rezprotocol/contracts`): the immutable REZ token and its non-upgradeable custody vaults |
 
-`rez-contracts` is not an active package. Shared wire vocabulary now lives in `rez-core`; server-side contract records and the registry live in `rez-node/src/contracts`.
+Shared wire vocabulary lives in `rez-core`; server-side contract records and the registry live in `rez-node/src/contracts`. `rez-contracts` is the canonical home of the on-chain economy and is the single source of truth for token and custody-vault behavior; it is deployed to testnet (Base Sepolia) ahead of mainnet — see the token whitepaper (`rez-token-whitepaper.html`) and [`ROADMAP.md`](./ROADMAP.md) for phasing.
 
 ## Boundaries
 
@@ -19,6 +20,25 @@ Rez is a JavaScript monorepo with strict package boundaries. The active workspac
 - `rez-sdk` may use `rez-core` primitives and must not depend on `rez-chat`.
 - `rez-node` owns relay/gateway/runtime behavior and may use `rez-core`.
 - `rez-core` owns reusable records and primitives, with no application workflow ownership.
+- `rez-contracts` owns Solidity contracts only. No JS package imports it as a library; clients and relays interact with deployed contracts through ABIs, never source.
+
+## Paid Services & Settlement
+
+Core messaging is free. Paid services — `@handles`, persistent storage, large files, content hosting — are billed as postage, not equity (see `rez-token-whitepaper.html`). The serving relay's runtime owns this layer:
+
+- A `ServiceCatalog` defines priced services and their parameters.
+- A `ServiceGate` is the single enforcement point: it runs a capability check, prices the request, then performs settlement via a `SettlementProvider`. Underfunded requests fail closed with `PAYMENT_REQUIRED`.
+- Settlement is one atomic, multi-leg `settleService` operation (debit / relay-credit / optional fee-credit) recorded as a canonical `SettlementEntryV1` in an append-only `SettlementJournal` — the balance and audit single source of truth. A capped `ReceiptLog` is a user-facing projection only.
+
+Beta runs on off-chain credits; chain-settlement mode (test REZ over a deposit-anchored payment channel) is testnet-only until mainnet.
+
+## Trust-Graph Recognition
+
+Relays earn from the rewards pool via demand-bound recognition, not raw volume. A `TrustGraph` (EigenTrust-style, seeded from neutral published seed relays) supersedes the older linear `ReputationScorer`. Objective self-facts (disk, uptime) only confer eligibility; rank and emissions require being demanded and vouched-for by other recognized relays. There is no token bond or stake to participate.
+
+## networkId Binding
+
+A `networkId` — an immutable pre-genesis constant — is bound into every economic artifact (settlement entries, receipts, attestations, storage proofs). Only official-`networkId` artifacts can earn or convert, which isolates private forks from the official economy.
 
 ## SDK Lifecycle and Lexicon
 
