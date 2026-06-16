@@ -12,6 +12,7 @@ export class DebitReceiptV1 extends RSerializable {
     amount,
     serviceId,
     serviceRef,
+    networkId,
     relayKeyId,
     createdAtMs,
     sig,
@@ -24,6 +25,11 @@ export class DebitReceiptV1 extends RSerializable {
     this.assert(isFinitePositive(amount), "DebitReceiptV1.amount must be positive number", { amount });
     this.assert(isNonEmptyString(serviceId), "DebitReceiptV1.serviceId must be non-empty string", { serviceId });
     this.assert(isNonEmptyString(serviceRef), "DebitReceiptV1.serviceRef must be non-empty string", { serviceRef });
+    // networkId binds the receipt to ONE settlement network. It lives in the
+    // signed body (toJSON below), so verifySettlementReceipt — which signs over
+    // every field except `sig` — covers it for free: a receipt minted on network
+    // A cannot be presented as valid on network B.
+    this.assert(isNonEmptyString(networkId), "DebitReceiptV1.networkId must be non-empty string", { networkId });
     this.assert(isNonEmptyString(relayKeyId), "DebitReceiptV1.relayKeyId must be non-empty string", { relayKeyId });
     this.assert(isFiniteNumber(createdAtMs), "DebitReceiptV1.createdAtMs must be number", { createdAtMs });
     validateSig(sig, "DebitReceiptV1");
@@ -34,6 +40,7 @@ export class DebitReceiptV1 extends RSerializable {
     this.amount = amount;
     this.serviceId = serviceId;
     this.serviceRef = serviceRef;
+    this.networkId = networkId;
     this.relayKeyId = relayKeyId;
     this.createdAtMs = createdAtMs;
     this.sig = cloneSig(sig);
@@ -47,6 +54,7 @@ export class DebitReceiptV1 extends RSerializable {
       amount: this.amount,
       serviceId: this.serviceId,
       serviceRef: this.serviceRef,
+      networkId: this.networkId,
       relayKeyId: this.relayKeyId,
       createdAtMs: this.createdAtMs,
       sig: sigToJSON(this.sig),
@@ -64,6 +72,7 @@ export class DebitReceiptV1 extends RSerializable {
       amount: json.amount,
       serviceId: json.serviceId,
       serviceRef: json.serviceRef,
+      networkId: json.networkId,
       relayKeyId: json.relayKeyId,
       createdAtMs: json.createdAtMs,
       sig: sigFromJSON(json.sig, "DebitReceiptV1"),
