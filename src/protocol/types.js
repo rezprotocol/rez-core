@@ -21,6 +21,8 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   MAILBOX_FETCH_RES: "mailbox.fetch.res",
   MAILBOX_ACK: "mailbox.ack",
   MAILBOX_ACK_RES: "mailbox.ack.res",
+  MAILBOX_CURSOR_ACK: "mailbox.cursorAck",
+  MAILBOX_CURSOR_ACK_RES: "mailbox.cursorAck.res",
   EVT_MAILBOX_DEPOSITED: "evt.mailbox.deposited",
   EVT_OUTBOUND_STATUS: "evt.outbound.status",
 
