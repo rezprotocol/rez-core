@@ -12,3 +12,4 @@ export * from "./settlement/index.js";
 export * from "./attestation/index.js";
 export * from "./handle/index.js";
 export * from "./inbox/index.js";
+export * from "./device/index.js";
