@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
-import { DeviceRegistrationV1 } from "../src/objects/device/DeviceRegistrationV1.js";
+import { DeviceRegistrationV1, DEVICE_REGISTRATION_PURPOSE } from "../src/objects/device/DeviceRegistrationV1.js";
 import { verifyDeviceRegistrationV1 } from "../src/objects/device/verifyDeviceRegistrationV1.js";
 
 // Ed25519 verify provider matching the rez-core convention (raw 32-byte key →
@@ -51,6 +51,7 @@ function makeRegistration({ account, device, overrides = {} } = {}) {
   const devicePublicKeyB64 = b64(device.publicKey);
   const body = {
     v: 1,
+    purpose: DEVICE_REGISTRATION_PURPOSE,
     accountIdentityPublicKeyB64,
     devicePublicKeyB64,
     deviceId: DeviceRegistrationV1.deviceIdFor(devicePublicKeyB64),
@@ -73,6 +74,18 @@ test("deviceIdFor is deterministic and self-certifying (rez:dev:<sha256>)", () =
   assert.notEqual(id1, other, "distinct device keys → distinct ids");
 });
 
+test("non-canonical base64 keys are rejected (kills the deviceId trim collision)", () => {
+  const device = generateEd25519KeyPair();
+  const account = generateEd25519KeyPair();
+  const clean = b64(device.publicKey);
+  // base64ToBytes silently strips whitespace, so a padded key would decode to the
+  // same bytes yet (formerly) hash to a different deviceId — reject it outright.
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor(clean + " "), /canonical/);
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor(" " + clean), /canonical/);
+  // And the constructor rejects a non-canonical device key.
+  assert.throws(() => makeRegistration({ account, device, overrides: { devicePublicKeyB64: clean + " " } }), /canonical|deviceId/);
+});
+
 test("the constructor refuses a deviceId that does not match the device key", () => {
   const account = generateEd25519KeyPair();
   const device = generateEd25519KeyPair();
@@ -80,6 +93,7 @@ test("the constructor refuses a deviceId that does not match the device key", ()
   const devicePublicKeyB64 = b64(device.publicKey);
   const body = {
     v: 1,
+    purpose: DEVICE_REGISTRATION_PURPOSE,
     accountIdentityPublicKeyB64,
     devicePublicKeyB64,
     deviceId: "rez:dev:" + "0".repeat(64), // wrong id
@@ -122,6 +136,17 @@ test("TRUST ANCHOR: a signature-valid registration for the WRONG account is reje
   // ...but it IS valid for its own account — proving the rejection is the anchor,
   // not some other defect.
   assert.equal((await verifyAs(evil, attacker)).ok, true);
+});
+
+test("a wrong purpose (domain separator) is rejected", async () => {
+  const account = generateEd25519KeyPair();
+  const device = generateEd25519KeyPair();
+  const reg = makeRegistration({ account, device });
+  const tampered = reg.toJSON();
+  tampered.purpose = "rez:something-else:v1";
+  const res = await verifyAs(tampered, account);
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "purpose mismatch");
 });
 
 test("the trust anchor is REQUIRED", async () => {
@@ -185,6 +210,7 @@ test("a registration signed by the WRONG account key fails verification", async 
   const devicePublicKeyB64 = b64(device.publicKey);
   const body = {
     v: 1,
+    purpose: DEVICE_REGISTRATION_PURPOSE,
     accountIdentityPublicKeyB64,
     devicePublicKeyB64,
     deviceId: DeviceRegistrationV1.deviceIdFor(devicePublicKeyB64),

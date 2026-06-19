@@ -5,6 +5,11 @@ import { canonicalJSONStringify } from "../../util/canonicalize.js";
 
 export const DEVICE_REGISTRATION_VERSION = 1;
 
+// Domain separator (audit P2). Carried INSIDE the signed body so this record's
+// signature can never be reinterpreted as some other canonicalJSONStringify-signed
+// record with a structurally-compatible field set (cf. DebitReceiptV1.networkId).
+export const DEVICE_REGISTRATION_PURPOSE = "rez:device-registration:v1";
+
 /**
  * DeviceRegistrationV1 — the account→device authorization that anchors
  * multi-device E2EE (S2.5). The ACCOUNT identity key signs a binding that
@@ -19,18 +24,36 @@ export const DEVICE_REGISTRATION_VERSION = 1;
  * This corrects the pre-S2.5 reality where `deviceId` was an unsigned,
  * client-minted random string with no key behind it.
  *
+ * Key encoding (audit P2): `accountIdentityPublicKeyB64` and
+ * `devicePublicKeyB64` are canonical STANDARD base64 (no whitespace, `+/`
+ * alphabet) of the SPKI DER public key — the encoding the SDK signer/verifier
+ * and the rez-node verifier MUST share. A different encoding yields a different
+ * `deviceId` (it hashes the exact string) and a failed verify, so the encoding
+ * is intrinsically pinned. Non-canonical input (whitespace, which `base64ToBytes`
+ * silently strips) is rejected outright so two strings can't collide on one key.
+ *
  * Signed body (everything except `sig`):
- *   { v, accountIdentityPublicKeyB64, devicePublicKeyB64, deviceId,
+ *   { v, purpose, accountIdentityPublicKeyB64, devicePublicKeyB64, deviceId,
  *     issuedAtMs, expiresAtMs }
  * sig = Ed25519 over canonicalJSONStringify(body) by the account identity key.
  * The signing key lives inside the signed body, so verification is
- * self-contained (no external key lookup — cf. durableRecordV1).
+ * self-contained (no external key lookup — cf. durableRecordV1). VERIFYING the
+ * signature alone is NOT a trust decision: it only proves self-consistency for
+ * whatever account the body claims — see verifyDeviceRegistrationV1, which
+ * REQUIRES an expected account.
+ *
+ * Like the settlement receipts (DebitReceiptV1 et al.) this is a signed
+ * value-object carrying a BINARY `sig` that needs manual JSON conversion, so it
+ * extends `RSerializable` with explicit toJSON/fromJSON — deliberately NOT the
+ * plain-JSON `RRecord` bus/WS-contract pattern (RRecord's auto-toJSON cannot
+ * serialize the Uint8Array signature).
  */
 export class DeviceRegistrationV1 extends RSerializable {
   static type = "DeviceRegistrationV1";
 
   constructor({
     v = DEVICE_REGISTRATION_VERSION,
+    purpose = DEVICE_REGISTRATION_PURPOSE,
     accountIdentityPublicKeyB64,
     devicePublicKeyB64,
     deviceId,
@@ -41,8 +64,9 @@ export class DeviceRegistrationV1 extends RSerializable {
     super();
 
     this.assert(v === DEVICE_REGISTRATION_VERSION, "DeviceRegistrationV1.v must be 1", { v });
-    this.assert(isNonEmptyString(accountIdentityPublicKeyB64), "DeviceRegistrationV1.accountIdentityPublicKeyB64 must be non-empty string", { accountIdentityPublicKeyB64 });
-    this.assert(isNonEmptyString(devicePublicKeyB64), "DeviceRegistrationV1.devicePublicKeyB64 must be non-empty string", { devicePublicKeyB64 });
+    this.assert(purpose === DEVICE_REGISTRATION_PURPOSE, "DeviceRegistrationV1.purpose must be " + DEVICE_REGISTRATION_PURPOSE, { purpose });
+    requireCanonicalB64(accountIdentityPublicKeyB64, "DeviceRegistrationV1.accountIdentityPublicKeyB64");
+    requireCanonicalB64(devicePublicKeyB64, "DeviceRegistrationV1.devicePublicKeyB64");
     this.assert(isNonEmptyString(deviceId), "DeviceRegistrationV1.deviceId must be non-empty string", { deviceId });
     const expectedDeviceId = DeviceRegistrationV1.deviceIdFor(devicePublicKeyB64);
     this.assert(deviceId === expectedDeviceId, "DeviceRegistrationV1.deviceId must equal rez:dev:sha256(devicePublicKeyB64)", { deviceId, expectedDeviceId });
@@ -52,6 +76,7 @@ export class DeviceRegistrationV1 extends RSerializable {
     validateDeviceSig(sig);
 
     this.v = DEVICE_REGISTRATION_VERSION;
+    this.purpose = DEVICE_REGISTRATION_PURPOSE;
     this.accountIdentityPublicKeyB64 = accountIdentityPublicKeyB64;
     this.devicePublicKeyB64 = devicePublicKeyB64;
     this.deviceId = deviceId;
@@ -63,10 +88,11 @@ export class DeviceRegistrationV1 extends RSerializable {
   /**
    * Self-certifying device id: rez:dev:<sha256(devicePublicKeyB64)>. SSOT used
    * by the signer, the verifier, and every consumer that addresses a device.
+   * Hashes the EXACT canonical key string (no trimming) — see the key-encoding
+   * note above.
    */
   static deviceIdFor(devicePublicKeyB64) {
-    const pub = String(devicePublicKeyB64 == null ? "" : devicePublicKeyB64).trim();
-    if (!pub) throw new Error("DeviceRegistrationV1.deviceIdFor requires devicePublicKeyB64");
+    const pub = requireCanonicalB64(devicePublicKeyB64, "DeviceRegistrationV1.deviceIdFor devicePublicKeyB64");
     return "rez:dev:" + Hash.sha256Hex(pub);
   }
 
@@ -74,9 +100,10 @@ export class DeviceRegistrationV1 extends RSerializable {
    * The exact bytes the account identity key signs and every verifier
    * recomputes — the signed body minus `sig`. Deterministic via canonical JSON.
    */
-  static signableBytes({ v, accountIdentityPublicKeyB64, devicePublicKeyB64, deviceId, issuedAtMs, expiresAtMs } = {}) {
+  static signableBytes({ v, purpose, accountIdentityPublicKeyB64, devicePublicKeyB64, deviceId, issuedAtMs, expiresAtMs } = {}) {
     const body = {
       v,
+      purpose,
       accountIdentityPublicKeyB64,
       devicePublicKeyB64,
       deviceId,
@@ -89,6 +116,7 @@ export class DeviceRegistrationV1 extends RSerializable {
   toJSON() {
     return {
       v: this.v,
+      purpose: this.purpose,
       accountIdentityPublicKeyB64: this.accountIdentityPublicKeyB64,
       devicePublicKeyB64: this.devicePublicKeyB64,
       deviceId: this.deviceId,
@@ -104,6 +132,7 @@ export class DeviceRegistrationV1 extends RSerializable {
     }
     return new DeviceRegistrationV1({
       v: json.v,
+      purpose: json.purpose,
       accountIdentityPublicKeyB64: json.accountIdentityPublicKeyB64,
       devicePublicKeyB64: json.devicePublicKeyB64,
       deviceId: json.deviceId,
@@ -112,6 +141,18 @@ export class DeviceRegistrationV1 extends RSerializable {
       sig: json.sig,
     });
   }
+}
+
+const CANONICAL_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function requireCanonicalB64(value, label) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(label + " must be a non-empty canonical base64 string");
+  }
+  if (!CANONICAL_B64.test(value)) {
+    throw new Error(label + " must be canonical standard base64 (no whitespace)");
+  }
+  return value;
 }
 
 function isFiniteNumber(value) {

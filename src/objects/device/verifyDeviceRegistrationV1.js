@@ -1,5 +1,5 @@
 import { base64ToBytes } from "../../util/bytes.js";
-import { DeviceRegistrationV1 } from "./DeviceRegistrationV1.js";
+import { DeviceRegistrationV1, DEVICE_REGISTRATION_PURPOSE } from "./DeviceRegistrationV1.js";
 
 /**
  * Verify a DeviceRegistrationV1 AGAINST AN EXPECTED ACCOUNT.
@@ -41,6 +41,12 @@ export async function verifyDeviceRegistrationV1({ registration, expectedAccount
 
   if (json.v !== 1) {
     return { ok: false, reason: "unsupported version" };
+  }
+  // Domain separator (audit P2): refuse a signature minted for a different
+  // record purpose. It is inside the signed body, so this is covered by the
+  // signature too, but rejecting early gives a precise reason.
+  if (json.purpose !== DEVICE_REGISTRATION_PURPOSE) {
+    return { ok: false, reason: "purpose mismatch" };
   }
 
   const accountIdentityPublicKeyB64 = json.accountIdentityPublicKeyB64;
