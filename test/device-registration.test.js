@@ -90,13 +90,58 @@ test("the constructor refuses a deviceId that does not match the device key", ()
   assert.throws(() => new DeviceRegistrationV1({ ...body, sig }), /deviceId must equal/);
 });
 
-test("a correctly account-signed registration verifies and echoes the deviceId", async () => {
+const VALID_NOW = ISSUED + 1000;
+function verifyAs(registration, expectAccount, nowMs = VALID_NOW) {
+  return verifyDeviceRegistrationV1({
+    registration,
+    expectedAccountIdentityPublicKeyB64: b64(expectAccount.publicKey),
+    crypto: cryptoProvider,
+    nowMs,
+  });
+}
+
+test("a correctly account-signed registration verifies against the expected account", async () => {
   const account = generateEd25519KeyPair();
   const device = generateEd25519KeyPair();
   const reg = makeRegistration({ account, device });
-  const res = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider });
+  const res = await verifyAs(reg, account);
   assert.equal(res.ok, true, res.reason);
   assert.equal(res.deviceId, reg.deviceId);
+});
+
+test("TRUST ANCHOR: a signature-valid registration for the WRONG account is rejected", async () => {
+  // Attacker mints a PERFECTLY valid registration for THEIR OWN account+device.
+  const attacker = generateEd25519KeyPair();
+  const attackerDevice = generateEd25519KeyPair();
+  const evil = makeRegistration({ account: attacker, device: attackerDevice });
+  // A caller expecting a device of `victim` must NOT accept it.
+  const victim = generateEd25519KeyPair();
+  const res = await verifyAs(evil, victim);
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "account mismatch (not the expected account)");
+  // ...but it IS valid for its own account — proving the rejection is the anchor,
+  // not some other defect.
+  assert.equal((await verifyAs(evil, attacker)).ok, true);
+});
+
+test("the trust anchor is REQUIRED", async () => {
+  const account = generateEd25519KeyPair();
+  const reg = makeRegistration({ account, device: generateEd25519KeyPair() });
+  const res = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider, nowMs: VALID_NOW });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /expectedAccountIdentityPublicKeyB64 required/);
+});
+
+test("nowMs is REQUIRED (no fail-open on expiry)", async () => {
+  const account = generateEd25519KeyPair();
+  const reg = makeRegistration({ account, device: generateEd25519KeyPair() });
+  const res = await verifyDeviceRegistrationV1({
+    registration: reg,
+    expectedAccountIdentityPublicKeyB64: b64(account.publicKey),
+    crypto: cryptoProvider,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /nowMs required/);
 });
 
 test("round-trips through toJSON/fromJSON and still verifies", async () => {
@@ -106,8 +151,7 @@ test("round-trips through toJSON/fromJSON and still verifies", async () => {
   const back = DeviceRegistrationV1.fromJSON(reg.toJSON());
   assert.equal(back.deviceId, reg.deviceId);
   assert.equal(back.accountIdentityPublicKeyB64, reg.accountIdentityPublicKeyB64);
-  const res = await verifyDeviceRegistrationV1({ registration: back, crypto: cryptoProvider });
-  assert.equal(res.ok, true, res.reason);
+  assert.equal((await verifyAs(back, account)).ok, true);
 });
 
 test("tampering the signed body (expiresAtMs) fails verification", async () => {
@@ -116,18 +160,18 @@ test("tampering the signed body (expiresAtMs) fails verification", async () => {
   const reg = makeRegistration({ account, device });
   const tampered = reg.toJSON();
   tampered.expiresAtMs = EXPIRES + 365 * 24 * 60 * 60 * 1000; // extend lifetime, no re-sign
-  const res = await verifyDeviceRegistrationV1({ registration: tampered, crypto: cryptoProvider });
+  const res = await verifyAs(tampered, account);
   assert.equal(res.ok, false);
   assert.equal(res.reason, "signature invalid");
 });
 
-test("a deviceId/device-key mismatch in raw JSON is rejected before signature check", async () => {
+test("a deviceId/device-key mismatch in raw JSON is rejected", async () => {
   const account = generateEd25519KeyPair();
   const device = generateEd25519KeyPair();
   const reg = makeRegistration({ account, device });
   const swapped = reg.toJSON();
   swapped.devicePublicKeyB64 = b64(generateEd25519KeyPair().publicKey); // different device, stale id
-  const res = await verifyDeviceRegistrationV1({ registration: swapped, crypto: cryptoProvider });
+  const res = await verifyAs(swapped, account);
   assert.equal(res.ok, false);
   assert.equal(res.reason, "deviceId does not match device key");
 });
@@ -149,7 +193,9 @@ test("a registration signed by the WRONG account key fails verification", async 
   };
   const sig = signWithAccount(body, attacker.privateKey);
   const reg = new DeviceRegistrationV1({ ...body, sig });
-  const res = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider });
+  // Expect `account` (matches the body's claim) so it clears the anchor check
+  // and fails on the SIGNATURE — proving the signer binding holds.
+  const res = await verifyAs(reg, account);
   assert.equal(res.ok, false);
   assert.equal(res.reason, "signature invalid");
 });
@@ -159,14 +205,13 @@ test("nowMs enforces the issued/expires window", async () => {
   const device = generateEd25519KeyPair();
   const reg = makeRegistration({ account, device });
 
-  const valid = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider, nowMs: ISSUED + 1000 });
-  assert.equal(valid.ok, true, valid.reason);
+  assert.equal((await verifyAs(reg, account, ISSUED + 1000)).ok, true);
 
-  const early = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider, nowMs: ISSUED - 1000 });
+  const early = await verifyAs(reg, account, ISSUED - 1000);
   assert.equal(early.ok, false);
   assert.equal(early.reason, "not yet valid");
 
-  const expired = await verifyDeviceRegistrationV1({ registration: reg, crypto: cryptoProvider, nowMs: EXPIRES + 1000 });
+  const expired = await verifyAs(reg, account, EXPIRES + 1000);
   assert.equal(expired.ok, false);
   assert.equal(expired.reason, "expired");
 });

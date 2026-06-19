@@ -2,24 +2,40 @@ import { base64ToBytes } from "../../util/bytes.js";
 import { DeviceRegistrationV1 } from "./DeviceRegistrationV1.js";
 
 /**
- * Verify a DeviceRegistrationV1: the account identity key signed a binding that
- * vouches for the device key, AND the self-certifying deviceId matches the
- * device key. Self-contained — the signing key (accountIdentityPublicKeyB64) is
- * inside the signed body, so no external key lookup is needed (cf. durable
- * records). When `nowMs` is provided, the issued/expires window is enforced too.
+ * Verify a DeviceRegistrationV1 AGAINST AN EXPECTED ACCOUNT.
+ *
+ * The signature alone only proves the registration is self-consistent — it is
+ * signed by WHATEVER account key the body carries, so a self-consistent
+ * registration for an ATTACKER's account verifies too. To use this as a trust
+ * decision ("is this a device of the account I expect?") the caller MUST pass
+ * the account they expect; verification fails on mismatch. There is no
+ * "trust whatever the record claims" mode — if you only want to read the
+ * claimed account, read `registration.accountIdentityPublicKeyB64` directly and
+ * make that trust decision explicitly.
+ *
+ * Also enforces (1) the self-certifying deviceId matches the device key
+ * (anti-substitution), and (2) the issued/expires window — `nowMs` is REQUIRED
+ * (no fail-open on expiry for an authentication-grade record).
  *
  * @param {object} opts
  * @param {object} opts.registration — DeviceRegistrationV1 instance or its toJSON()
+ * @param {string} opts.expectedAccountIdentityPublicKeyB64 — REQUIRED trust anchor: the account whose device this must be
  * @param {{ verify(args:{publicKey:Uint8Array,msg:Uint8Array,sig:Uint8Array}):Promise<boolean> }} opts.crypto
- * @param {number} [opts.nowMs] — when a finite number, reject not-yet-valid / expired records
+ * @param {number} opts.nowMs — REQUIRED finite epoch ms; rejects not-yet-valid / expired records
  * @returns {Promise<{ok:boolean, reason?:string, deviceId?:string}>}
  */
-export async function verifyDeviceRegistrationV1({ registration, crypto, nowMs } = {}) {
+export async function verifyDeviceRegistrationV1({ registration, expectedAccountIdentityPublicKeyB64, crypto, nowMs } = {}) {
   if (!registration || typeof registration !== "object") {
     return { ok: false, reason: "invalid registration" };
   }
   if (!crypto || typeof crypto.verify !== "function") {
     return { ok: false, reason: "crypto.verify required" };
+  }
+  if (typeof expectedAccountIdentityPublicKeyB64 !== "string" || expectedAccountIdentityPublicKeyB64.trim().length === 0) {
+    return { ok: false, reason: "expectedAccountIdentityPublicKeyB64 required (trust anchor)" };
+  }
+  if (typeof nowMs !== "number" || !Number.isFinite(nowMs)) {
+    return { ok: false, reason: "nowMs required (finite) for expiry check" };
   }
   const json = typeof registration.toJSON === "function" ? registration.toJSON() : registration;
 
@@ -34,6 +50,12 @@ export async function verifyDeviceRegistrationV1({ registration, crypto, nowMs }
   }
   if (typeof devicePublicKeyB64 !== "string" || devicePublicKeyB64.length === 0) {
     return { ok: false, reason: "missing devicePublicKeyB64" };
+  }
+
+  // TRUST ANCHOR: the registration must vouch for a device of the EXPECTED
+  // account, not just any self-consistent account (the impersonation gap).
+  if (accountIdentityPublicKeyB64.trim() !== expectedAccountIdentityPublicKeyB64.trim()) {
+    return { ok: false, reason: "account mismatch (not the expected account)" };
   }
 
   // Self-certifying deviceId must match the device key (anti-substitution): a
@@ -70,13 +92,12 @@ export async function verifyDeviceRegistrationV1({ registration, crypto, nowMs }
     return { ok: false, reason: "signature invalid" };
   }
 
-  if (typeof nowMs === "number" && Number.isFinite(nowMs)) {
-    if (nowMs < json.issuedAtMs) {
-      return { ok: false, reason: "not yet valid" };
-    }
-    if (nowMs >= json.expiresAtMs) {
-      return { ok: false, reason: "expired" };
-    }
+  // nowMs is guaranteed finite (required + validated above) — always enforce.
+  if (nowMs < json.issuedAtMs) {
+    return { ok: false, reason: "not yet valid" };
+  }
+  if (nowMs >= json.expiresAtMs) {
+    return { ok: false, reason: "expired" };
   }
 
   return { ok: true, deviceId: json.deviceId };
