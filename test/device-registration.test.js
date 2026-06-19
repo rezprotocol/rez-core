@@ -5,12 +5,12 @@ import crypto from "node:crypto";
 import { DeviceRegistrationV1, DEVICE_REGISTRATION_PURPOSE } from "../src/objects/device/DeviceRegistrationV1.js";
 import { verifyDeviceRegistrationV1 } from "../src/objects/device/verifyDeviceRegistrationV1.js";
 
-// Ed25519 verify provider matching the rez-core convention (raw 32-byte key →
-// SPKI-wrapped), identical to the settlement-receipt tests.
+// Ed25519 verify provider. Device/account public keys are the full 44-byte SPKI
+// DER encoding (the encoding DeviceRegistrationV1 enforces), imported directly.
 const cryptoProvider = {
   async verify({ publicKey, msg, sig }) {
     const keyObj = crypto.createPublicKey({
-      key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(publicKey)]),
+      key: Buffer.from(publicKey),
       format: "der",
       type: "spki",
     });
@@ -18,10 +18,13 @@ const cryptoProvider = {
   },
 };
 
+// Public key = full SPKI DER (44 bytes); private = raw 32-byte seed (re-wrapped
+// to PKCS8 by signWithAccount). The SPKI public is what the record stores +
+// hashes into deviceId, matching the SDK's WebCrypto exportKey("spki").
 function generateEd25519KeyPair() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
   return {
-    publicKey: new Uint8Array(publicKey.export({ format: "der", type: "spki" }).subarray(12)),
+    publicKey: new Uint8Array(publicKey.export({ format: "der", type: "spki" })),
     privateKey: new Uint8Array(privateKey.export({ format: "der", type: "pkcs8" }).subarray(16)),
   };
 }
@@ -31,7 +34,8 @@ function b64(bytes) {
 }
 
 // Sign exactly as the SDK device-registration signer will: Ed25519 (account
-// identity key) over DeviceRegistrationV1.signableBytes(body).
+// identity key) over DeviceRegistrationV1.signableBytes(body); sig carried as
+// the JSON-safe `{ alg, sigB64 }` shape the record stores.
 function signWithAccount(body, accountPrivateKey) {
   const keyObj = crypto.createPrivateKey({
     key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(accountPrivateKey)]),
@@ -40,7 +44,7 @@ function signWithAccount(body, accountPrivateKey) {
   });
   const bytes = DeviceRegistrationV1.signableBytes(body);
   const sig = new Uint8Array(crypto.sign(null, bytes, keyObj));
-  return { alg: "ed25519", sig };
+  return { alg: "ed25519", sigB64: Buffer.from(sig).toString("base64") };
 }
 
 const ISSUED = 1_700_000_000_000;
@@ -84,6 +88,19 @@ test("non-canonical base64 keys are rejected (kills the deviceId trim collision)
   assert.throws(() => DeviceRegistrationV1.deviceIdFor(" " + clean), /canonical/);
   // And the constructor rejects a non-canonical device key.
   assert.throws(() => makeRegistration({ account, device, overrides: { devicePublicKeyB64: clean + " " } }), /canonical|deviceId/);
+});
+
+test("non-SPKI / non-canonical keys are rejected (audit P2: length + prefix + round-trip)", () => {
+  const device = generateEd25519KeyPair();
+  // A RAW 32-byte Ed25519 key (the SPKI header stripped) is canonical base64 but
+  // the wrong length — the contract is SPKI DER, so reject it.
+  const raw32 = b64(device.publicKey.subarray(12));
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor(raw32), /SPKI|44-byte/);
+  // Structurally-broken base64 the permissive regex used to wave through.
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor("A="), /base64/i);
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor("abcde"), /base64/i);
+  // 44 bytes but NOT the Ed25519 SPKI prefix (here: all-zero DER) → rejected.
+  assert.throws(() => DeviceRegistrationV1.deviceIdFor(b64(new Uint8Array(44))), /prefix/);
 });
 
 test("the constructor refuses a deviceId that does not match the device key", () => {

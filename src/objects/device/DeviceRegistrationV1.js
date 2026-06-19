@@ -1,7 +1,8 @@
-import { RSerializable } from "../../base/index.js";
+import { RRecord } from "../../base/index.js";
 import { isNonEmptyString } from "../../util/strings.js";
 import { Hash } from "../../base/util/Hash.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
+import { base64ToBytes, bytesToBase64, bytesToHex } from "../../util/bytes.js";
 
 export const DEVICE_REGISTRATION_VERSION = 1;
 
@@ -9,6 +10,14 @@ export const DEVICE_REGISTRATION_VERSION = 1;
 // signature can never be reinterpreted as some other canonicalJSONStringify-signed
 // record with a structurally-compatible field set (cf. DebitReceiptV1.networkId).
 export const DEVICE_REGISTRATION_PURPOSE = "rez:device-registration:v1";
+
+// Ed25519 public key encoded as SPKI DER is exactly 44 bytes: a fixed 12-byte
+// AlgorithmIdentifier prefix + the 32-byte raw key. Pinning BOTH the length and
+// the prefix (audit P2) rejects a raw-32 key, a PKCS8 private key, or any other
+// key type masquerading as a device/account identity key.
+const ED25519_SPKI_PREFIX_HEX = "302a300506032b6570032100";
+const ED25519_SPKI_LEN = 44;
+const CANONICAL_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
  * DeviceRegistrationV1 — the account→device authorization that anchors
@@ -26,29 +35,31 @@ export const DEVICE_REGISTRATION_PURPOSE = "rez:device-registration:v1";
  *
  * Key encoding (audit P2): `accountIdentityPublicKeyB64` and
  * `devicePublicKeyB64` are canonical STANDARD base64 (no whitespace, `+/`
- * alphabet) of the SPKI DER public key — the encoding the SDK signer/verifier
- * and the rez-node verifier MUST share. A different encoding yields a different
- * `deviceId` (it hashes the exact string) and a failed verify, so the encoding
- * is intrinsically pinned. Non-canonical input (whitespace, which `base64ToBytes`
- * silently strips) is rejected outright so two strings can't collide on one key.
+ * alphabet) of the **44-byte Ed25519 SPKI DER** public key. The encoding is
+ * enforced, not merely documented: the base64 must round-trip exactly (decode →
+ * re-encode → identical, so `A=` / `abcde` / non-canonical padding are rejected)
+ * AND the decoded bytes must carry the Ed25519 SPKI length + DER prefix. This is
+ * the exact encoding the SDK signer/verifier and the rez-node verifier share;
+ * any other encoding yields a different `deviceId` (it hashes the exact string)
+ * and a failed verify.
  *
  * Signed body (everything except `sig`):
  *   { v, purpose, accountIdentityPublicKeyB64, devicePublicKeyB64, deviceId,
  *     issuedAtMs, expiresAtMs }
- * sig = Ed25519 over canonicalJSONStringify(body) by the account identity key.
- * The signing key lives inside the signed body, so verification is
- * self-contained (no external key lookup — cf. durableRecordV1). VERIFYING the
- * signature alone is NOT a trust decision: it only proves self-consistency for
- * whatever account the body claims — see verifyDeviceRegistrationV1, which
- * REQUIRES an expected account.
+ * sig = Ed25519 over canonicalJSONStringify(body) by the account identity key,
+ * carried as `{ alg: "ed25519", sigB64 }`. The signing key lives inside the
+ * signed body, so verification is self-contained (no external key lookup — cf.
+ * durableRecordV1). VERIFYING the signature alone is NOT a trust decision: it
+ * only proves self-consistency for whatever account the body claims — see
+ * verifyDeviceRegistrationV1, which REQUIRES an expected account.
  *
- * Like the settlement receipts (DebitReceiptV1 et al.) this is a signed
- * value-object carrying a BINARY `sig` that needs manual JSON conversion, so it
- * extends `RSerializable` with explicit toJSON/fromJSON — deliberately NOT the
- * plain-JSON `RRecord` bus/WS-contract pattern (RRecord's auto-toJSON cannot
- * serialize the Uint8Array signature).
+ * Record policy (audit P2): this is a proper `RRecord`. Every field is JSON-safe
+ * — the signature is a base64 STRING (`sig.sigB64`), not a Uint8Array — so the
+ * inherited auto-`toJSON`/`fromJSON` round-trip it with no custom binary
+ * handling, satisfying the AGENTS.md requirement that new structured/wire
+ * payloads be RRecord subclasses (no RSerializable carve-out).
  */
-export class DeviceRegistrationV1 extends RSerializable {
+export class DeviceRegistrationV1 extends RRecord {
   static type = "DeviceRegistrationV1";
 
   constructor({
@@ -62,37 +73,39 @@ export class DeviceRegistrationV1 extends RSerializable {
     sig,
   } = {}) {
     super();
-
-    this.assert(v === DEVICE_REGISTRATION_VERSION, "DeviceRegistrationV1.v must be 1", { v });
-    this.assert(purpose === DEVICE_REGISTRATION_PURPOSE, "DeviceRegistrationV1.purpose must be " + DEVICE_REGISTRATION_PURPOSE, { purpose });
-    requireCanonicalB64(accountIdentityPublicKeyB64, "DeviceRegistrationV1.accountIdentityPublicKeyB64");
-    requireCanonicalB64(devicePublicKeyB64, "DeviceRegistrationV1.devicePublicKeyB64");
-    this.assert(isNonEmptyString(deviceId), "DeviceRegistrationV1.deviceId must be non-empty string", { deviceId });
-    const expectedDeviceId = DeviceRegistrationV1.deviceIdFor(devicePublicKeyB64);
-    this.assert(deviceId === expectedDeviceId, "DeviceRegistrationV1.deviceId must equal rez:dev:sha256(devicePublicKeyB64)", { deviceId, expectedDeviceId });
-    this.assert(isFiniteNumber(issuedAtMs), "DeviceRegistrationV1.issuedAtMs must be number", { issuedAtMs });
-    this.assert(isFiniteNumber(expiresAtMs), "DeviceRegistrationV1.expiresAtMs must be number", { expiresAtMs });
-    this.assert(expiresAtMs > issuedAtMs, "DeviceRegistrationV1.expiresAtMs must be after issuedAtMs", { issuedAtMs, expiresAtMs });
-    validateDeviceSig(sig);
-
-    this.v = DEVICE_REGISTRATION_VERSION;
-    this.purpose = DEVICE_REGISTRATION_PURPOSE;
+    this.v = v;
+    this.purpose = purpose;
     this.accountIdentityPublicKeyB64 = accountIdentityPublicKeyB64;
     this.devicePublicKeyB64 = devicePublicKeyB64;
     this.deviceId = deviceId;
     this.issuedAtMs = issuedAtMs;
     this.expiresAtMs = expiresAtMs;
-    this.sig = { alg: sig.alg, sig: toSigBytes(sig.sig, "DeviceRegistrationV1.sig.sig") };
+    this.sig = normalizeSig(sig);
+    this._seal();
+  }
+
+  validate() {
+    this.assert(this.v === DEVICE_REGISTRATION_VERSION, "DeviceRegistrationV1.v must be 1", { v: this.v });
+    this.assert(this.purpose === DEVICE_REGISTRATION_PURPOSE, "DeviceRegistrationV1.purpose must be " + DEVICE_REGISTRATION_PURPOSE, { purpose: this.purpose });
+    requireCanonicalSpkiB64(this.accountIdentityPublicKeyB64, "DeviceRegistrationV1.accountIdentityPublicKeyB64");
+    requireCanonicalSpkiB64(this.devicePublicKeyB64, "DeviceRegistrationV1.devicePublicKeyB64");
+    this.assert(isNonEmptyString(this.deviceId), "DeviceRegistrationV1.deviceId must be non-empty string", { deviceId: this.deviceId });
+    const expectedDeviceId = DeviceRegistrationV1.deviceIdFor(this.devicePublicKeyB64);
+    this.assert(this.deviceId === expectedDeviceId, "DeviceRegistrationV1.deviceId must equal rez:dev:sha256(devicePublicKeyB64)", { deviceId: this.deviceId, expectedDeviceId });
+    this.assert(isFiniteNumber(this.issuedAtMs), "DeviceRegistrationV1.issuedAtMs must be number", { issuedAtMs: this.issuedAtMs });
+    this.assert(isFiniteNumber(this.expiresAtMs), "DeviceRegistrationV1.expiresAtMs must be number", { expiresAtMs: this.expiresAtMs });
+    this.assert(this.expiresAtMs > this.issuedAtMs, "DeviceRegistrationV1.expiresAtMs must be after issuedAtMs", { issuedAtMs: this.issuedAtMs, expiresAtMs: this.expiresAtMs });
+    validateDeviceSig(this.sig);
   }
 
   /**
    * Self-certifying device id: rez:dev:<sha256(devicePublicKeyB64)>. SSOT used
    * by the signer, the verifier, and every consumer that addresses a device.
-   * Hashes the EXACT canonical key string (no trimming) — see the key-encoding
-   * note above.
+   * Hashes the EXACT canonical SPKI key string (no trimming) — see the
+   * key-encoding note above.
    */
   static deviceIdFor(devicePublicKeyB64) {
-    const pub = requireCanonicalB64(devicePublicKeyB64, "DeviceRegistrationV1.deviceIdFor devicePublicKeyB64");
+    const pub = requireCanonicalSpkiB64(devicePublicKeyB64, "DeviceRegistrationV1.deviceIdFor devicePublicKeyB64");
     return "rez:dev:" + Hash.sha256Hex(pub);
   }
 
@@ -112,57 +125,45 @@ export class DeviceRegistrationV1 extends RSerializable {
     };
     return new TextEncoder().encode(canonicalJSONStringify(body));
   }
-
-  toJSON() {
-    return {
-      v: this.v,
-      purpose: this.purpose,
-      accountIdentityPublicKeyB64: this.accountIdentityPublicKeyB64,
-      devicePublicKeyB64: this.devicePublicKeyB64,
-      deviceId: this.deviceId,
-      issuedAtMs: this.issuedAtMs,
-      expiresAtMs: this.expiresAtMs,
-      sig: { alg: this.sig.alg, sig: Array.from(this.sig.sig) },
-    };
-  }
-
-  static fromJSON(json) {
-    if (!json || typeof json !== "object") {
-      throw new Error("DeviceRegistrationV1.fromJSON(json) requires object");
-    }
-    return new DeviceRegistrationV1({
-      v: json.v,
-      purpose: json.purpose,
-      accountIdentityPublicKeyB64: json.accountIdentityPublicKeyB64,
-      devicePublicKeyB64: json.devicePublicKeyB64,
-      deviceId: json.deviceId,
-      issuedAtMs: json.issuedAtMs,
-      expiresAtMs: json.expiresAtMs,
-      sig: json.sig,
-    });
-  }
 }
 
-const CANONICAL_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+// Accept the canonical `{ alg, sigB64 }` shape. Tolerate a missing/!object sig
+// here (validate() asserts it) so the constructor can assign a stable shape.
+function normalizeSig(sig) {
+  if (!sig || typeof sig !== "object") return sig;
+  return { alg: sig.alg, sigB64: sig.sigB64 };
+}
 
-function requireCanonicalB64(value, label) {
+function requireCanonicalSpkiB64(value, label) {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(label + " must be a non-empty canonical base64 string");
   }
   if (!CANONICAL_B64.test(value)) {
     throw new Error(label + " must be canonical standard base64 (no whitespace)");
   }
+  let bytes;
+  try {
+    bytes = base64ToBytes(value);
+  } catch (err) {
+    throw new Error(label + " is not decodable base64: " + (err && err.message ? err.message : "unknown"));
+  }
+  // Canonical round-trip: decode then re-encode must reproduce the input exactly.
+  // Rejects non-canonical strings that base64ToBytes tolerates (stray padding,
+  // unused trailing bits) which would hash to a different deviceId than the key.
+  if (bytesToBase64(bytes) !== value) {
+    throw new Error(label + " must be canonical base64 (round-trip mismatch)");
+  }
+  if (bytes.length !== ED25519_SPKI_LEN) {
+    throw new Error(label + " must be a 44-byte Ed25519 SPKI DER public key, got " + bytes.length + " bytes");
+  }
+  if (bytesToHex(bytes.subarray(0, 12)) !== ED25519_SPKI_PREFIX_HEX) {
+    throw new Error(label + " must carry the Ed25519 SPKI DER prefix");
+  }
   return value;
 }
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function toSigBytes(value, label) {
-  if (value instanceof Uint8Array) return value;
-  if (Array.isArray(value)) return new Uint8Array(value);
-  throw new Error(label + " must be Uint8Array");
 }
 
 function validateDeviceSig(sig) {
@@ -172,9 +173,7 @@ function validateDeviceSig(sig) {
   if (sig.alg !== "ed25519") {
     throw new Error('DeviceRegistrationV1.sig.alg must be "ed25519"');
   }
-  const bytes = sig.sig;
-  const ok = (bytes instanceof Uint8Array && bytes.length > 0) || (Array.isArray(bytes) && bytes.length > 0);
-  if (!ok) {
-    throw new Error("DeviceRegistrationV1.sig.sig must be non-empty Uint8Array");
+  if (typeof sig.sigB64 !== "string" || sig.sigB64.length === 0 || !CANONICAL_B64.test(sig.sigB64)) {
+    throw new Error("DeviceRegistrationV1.sig.sigB64 must be a non-empty canonical base64 string");
   }
 }

@@ -76,14 +76,14 @@ export async function verifyDeviceRegistrationV1({ registration, expectedAccount
     return { ok: false, reason: "deviceId does not match device key" };
   }
 
-  if (!json.sig || typeof json.sig !== "object" || json.sig.alg !== "ed25519") {
+  if (!json.sig || typeof json.sig !== "object" || json.sig.alg !== "ed25519" || typeof json.sig.sigB64 !== "string") {
     return { ok: false, reason: "missing or unsupported signature" };
   }
 
   let signature;
   let accountPub;
   try {
-    signature = json.sig.sig instanceof Uint8Array ? json.sig.sig : new Uint8Array(json.sig.sig);
+    signature = base64ToBytes(json.sig.sigB64);
     accountPub = base64ToBytes(accountIdentityPublicKeyB64);
   } catch (err) {
     return { ok: false, reason: "malformed signature or key bytes: " + (err && err.message ? err.message : "unknown") };
