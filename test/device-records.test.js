@@ -8,6 +8,7 @@ import {
   DeviceSetRecordV1,
   DeviceRevokeV1,
   DeviceLinkRequestV1,
+  DevicePrekeyBundleV1,
 } from "../src/objects/device/index.js";
 
 // Ed25519 keypair: SPKI public (b64, the encoding the records pin) + a node
@@ -188,4 +189,89 @@ test("DeviceLinkRequestV1: rejects newDeviceId mismatch and a missing ceremony n
   const newDevice = genKey();
   assert.throws(() => makeLinkRequest({ account, newDevice, overrides: { newDeviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
   assert.throws(() => makeLinkRequest({ account, newDevice, nonceB64: "" }), /ceremonyNonceB64/);
+});
+
+// --- DevicePrekeyBundleV1 (device-signed) ---
+
+// A canonical base64 string of `n` random bytes — stands in for the X3DH
+// sub-keys whose internal signatures are verified at session establishment, not
+// here. (deviceB64 is a real 44-byte Ed25519 SPKI, used as the X25519-shaped
+// fields' shape too — only canonical-base64 is required of them.)
+function b64(n) {
+  return Buffer.from(crypto.randomBytes(n)).toString("base64");
+}
+
+function makeBundleJson(devicePublicKeyB64, overrides = {}) {
+  return {
+    receiverId: "rez:acct:peer",
+    identitySigningPublicKeyB64: devicePublicKeyB64, // = device key C
+    identityDhPublicKeyB64: b64(44),
+    identityDhSignatureB64: b64(64),
+    signedPreKeyPublicB64: b64(44),
+    signedPreKeySignatureB64: b64(64),
+    accountIdentityPublicKeyB64: null,
+    accountBindingSigB64: null,
+    accountBindingIssuedAtMs: null,
+    accountBindingExpiresAtMs: null,
+    oneTimePreKeyPublicB64: b64(44),
+    ...overrides,
+  };
+}
+
+function makePrekeyBundle({ account, device, inboxId = "rez:inbox:dev", prekeyVersion = 1, bundleOverrides = {}, overrides = {} } = {}) {
+  const body = {
+    v: 1,
+    purpose: "rez:device-prekey-bundle:v1",
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    devicePublicKeyB64: device.publicKeyB64,
+    deviceId: deviceId(device.publicKeyB64),
+    inboxId,
+    prekeyVersion,
+    bundleJson: makeBundleJson(device.publicKeyB64, bundleOverrides),
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  // Signed by the DEVICE key (C) — the device signs its own prekeys.
+  const sig = sign(device.privateKey, DevicePrekeyBundleV1.signableBytes(body));
+  return new DevicePrekeyBundleV1({ ...body, sig });
+}
+
+test("DevicePrekeyBundleV1: device-signed bundle constructs, verifies, round-trips", () => {
+  const account = genKey();
+  const device = genKey();
+  const rec = makePrekeyBundle({ account, device });
+  assert.equal(rec.deviceId, deviceId(device.publicKeyB64));
+  assert.equal(rec.bundleJson.identitySigningPublicKeyB64, device.publicKeyB64);
+  // Signed by the device key C; verifier recomputes the canonical body.
+  assert.ok(verify(device.publicKeyB64, DevicePrekeyBundleV1.signableBytes(rec.toJSON()), rec.sig));
+  const back = DevicePrekeyBundleV1.fromJSON(rec.toJSON());
+  assert.equal(back.prekeyVersion, rec.prekeyVersion);
+  assert.deepEqual(back.bundleJson, rec.bundleJson);
+});
+
+test("DevicePrekeyBundleV1: rejects a bundle whose signing identity is NOT the bound device key (anti-substitution)", () => {
+  const account = genKey();
+  const device = genKey();
+  const other = genKey();
+  assert.throws(
+    () => makePrekeyBundle({ account, device, bundleOverrides: { identitySigningPublicKeyB64: other.publicKeyB64 } }),
+    /bundleJson.identitySigningPublicKeyB64 must equal the bound device key/,
+  );
+});
+
+test("DevicePrekeyBundleV1: rejects deviceId mismatch, non-positive prekeyVersion, and a malformed bundle field", () => {
+  const account = genKey();
+  const device = genKey();
+  assert.throws(() => makePrekeyBundle({ account, device, overrides: { deviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
+  assert.throws(() => makePrekeyBundle({ account, device, prekeyVersion: 0 }), /prekeyVersion must be a positive integer/);
+  assert.throws(() => makePrekeyBundle({ account, device, bundleOverrides: { identityDhPublicKeyB64: "not base64!!" } }), /identityDhPublicKeyB64/);
+});
+
+test("DevicePrekeyBundleV1: tamper with the signed body breaks verification", () => {
+  const account = genKey();
+  const device = genKey();
+  const rec = makePrekeyBundle({ account, device });
+  const tampered = { ...rec.toJSON(), inboxId: "rez:inbox:evil" };
+  assert.equal(verify(device.publicKeyB64, DevicePrekeyBundleV1.signableBytes(tampered), rec.sig), false);
 });
