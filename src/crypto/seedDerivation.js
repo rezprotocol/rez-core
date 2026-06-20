@@ -22,6 +22,15 @@ const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "he
 //       <32 bytes>      raw public key
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
+// X25519 DER prefixes — identical structure to the Ed25519 ones above, but with
+// OID 1.3.101.110 (X25519, `2b 65 6e`) instead of 1.3.101.112 (Ed25519, `2b 65 70`).
+// The raw 32-byte private scalar / public point follow the prefix. Exporting via
+// createPrivateKey/createPublicKey(...).export("der", "pkcs8"|"spki") yields the
+// SAME bytes WebCrypto's exportKey produces, so the result is byte-interchangeable
+// with cryptoProvider.dhGenerateKeyPair()/dhDerive() (PKCS#8 priv / SPKI pub).
+const X25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b656e04220420", "hex");
+const X25519_SPKI_PREFIX = Buffer.from("302a300506032b656e032100", "hex");
+
 /**
  * Derive subkeys + ed25519 identities from a BIP39 seed.
  *
@@ -90,5 +99,28 @@ export class SeedKeys {
    */
   static deriveEd25519RawPrivate({ seed, label }) {
     return SeedKeys.deriveBytes({ seed, label, length: 32 });
+  }
+
+  /**
+   * Derive a deterministic X25519 keypair from a seed + label, in the same
+   * on-the-wire shape as cryptoProvider.dhGenerateKeyPair():
+   *   - privateKeyB64 = base64-encoded PKCS#8 DER
+   *   - publicKeyB64  = base64-encoded SPKI    DER
+   * so the bytes drop straight into dhDerive() / peerScopedSeal without
+   * conversion. This is the ACCOUNT-level identity-DH key (X3DH DH1 + the
+   * device-set peer-scoped seal): it MUST be the same on every device of an
+   * account, which deterministic seed derivation gives for free.
+   */
+  static deriveX25519({ seed, label }) {
+    const rawPriv = SeedKeys.deriveBytes({ seed, label, length: 32 });
+    const pkcs8 = Buffer.concat([X25519_PKCS8_PREFIX, rawPriv]);
+    const privKeyObj = createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" });
+    const pubKeyObj = createPublicKey(privKeyObj);
+    const privPkcs8 = privKeyObj.export({ format: "der", type: "pkcs8" });
+    const pubSpki = pubKeyObj.export({ format: "der", type: "spki" });
+    return {
+      privateKeyB64: Buffer.from(privPkcs8).toString("base64"),
+      publicKeyB64: Buffer.from(pubSpki).toString("base64"),
+    };
   }
 }

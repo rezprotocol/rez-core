@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+import { createPrivateKey, createPublicKey, sign, verify, diffieHellman } from "node:crypto";
 import { Bip39 } from "../src/crypto/bip39.js";
 import { SeedKeys } from "../src/crypto/seedDerivation.js";
 
@@ -63,6 +63,37 @@ test("SeedKeys.deriveEd25519 — different labels produce different keypairs", a
   const chatServer = SeedKeys.deriveEd25519({ seed, label: "rez/identity/chat-server/v1" });
   assert.notEqual(desktop.privateKeyB64, chatServer.privateKeyB64);
   assert.notEqual(desktop.publicKeyB64, chatServer.publicKeyB64);
+});
+
+test("SeedKeys.deriveX25519 — deterministic, correct DER sizes, label-separated", async () => {
+  const seed = await fixedSeed();
+  const k1 = SeedKeys.deriveX25519({ seed, label: "rez/identity/x3dh-dh/v1" });
+  const k2 = SeedKeys.deriveX25519({ seed, label: "rez/identity/x3dh-dh/v1" });
+  assert.equal(k1.privateKeyB64, k2.privateKeyB64, "same seed+label is deterministic");
+  assert.equal(k1.publicKeyB64, k2.publicKeyB64);
+  // SPKI X25519 pubkey is 44 bytes; PKCS#8 X25519 privkey is 48 bytes — the same
+  // shape cryptoProvider.dhGenerateKeyPair() produces, so they interoperate.
+  assert.equal(Buffer.from(k1.publicKeyB64, "base64").length, 44);
+  assert.equal(Buffer.from(k1.privateKeyB64, "base64").length, 48);
+
+  const other = SeedKeys.deriveX25519({ seed, label: "rez/identity/chat-server/v1" });
+  assert.notEqual(other.publicKeyB64, k1.publicKeyB64, "a different label gives a different key");
+});
+
+test("SeedKeys.deriveX25519 — keys perform a commutative X25519 agreement (account-level seal)", async () => {
+  // Two accounts' seed-derived identity-DH keys must agree on a shared secret —
+  // this is what makes the peer-scoped device-set seal openable by both sides
+  // (and, when re-derived on a second device of the SAME account, identical).
+  const a = SeedKeys.deriveX25519({ seed: Buffer.alloc(64, 1), label: "rez/identity/x3dh-dh/v1" });
+  const b = SeedKeys.deriveX25519({ seed: Buffer.alloc(64, 2), label: "rez/identity/x3dh-dh/v1" });
+  const aPriv = privKeyFromB64(a.privateKeyB64);
+  const aPub = pubKeyFromB64(a.publicKeyB64);
+  const bPriv = privKeyFromB64(b.privateKeyB64);
+  const bPub = pubKeyFromB64(b.publicKeyB64);
+  const ab = diffieHellman({ privateKey: aPriv, publicKey: bPub });
+  const ba = diffieHellman({ privateKey: bPriv, publicKey: aPub });
+  assert.equal(Buffer.compare(ab, ba), 0, "X25519(aPriv,bPub) === X25519(bPriv,aPub)");
+  assert.equal(ab.length, 32);
 });
 
 test("SeedKeys.deriveBytes — rejects malformed input", async () => {
