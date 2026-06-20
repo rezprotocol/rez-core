@@ -11,6 +11,11 @@ import {
 
 export const DEVICE_SET_VERSION = 1;
 export const DEVICE_SET_PURPOSE = "rez:device-set:v1";
+// The DurableRecordV1.recordKind under which an account publishes its
+// encrypted-to-peer device set (S2.5 Slice 3). One sealed record per peer-link,
+// addressed at a peer-derived slot (recordId), published under the account
+// identity (B) pubkey.
+export const DEVICE_SET_RECORD_KIND = "peerlink-device-set";
 
 /**
  * DeviceSetRecordV1 — the authoritative set of devices an account fans out to
