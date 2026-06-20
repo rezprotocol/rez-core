@@ -34,6 +34,16 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   INBOX_SET_DEPOSIT_POLICY: "inbox.setDepositPolicy",
   INBOX_SET_DEPOSIT_POLICY_RES: "inbox.setDepositPolicy.res",
 
+  // --- per-device home binding (S2.5 Slice 4) ---
+  // device.bind: present a proven device key (DeviceRegistrationV1 +
+  //   DeviceInboxBindingV1) so the durable home binds a device cursor to the
+  //   SIGNED self-cert deviceId. device.revoke: an account-signed DeviceRevokeV1
+  //   fail-closes the home for that device (append/read/cursorAck refused).
+  DEVICE_BIND: "device.bind",
+  DEVICE_BIND_RES: "device.bind.res",
+  DEVICE_REVOKE: "device.revoke",
+  DEVICE_REVOKE_RES: "device.revoke.res",
+
   // --- channel operations (5, stub) ---
   CHANNEL_OPEN: "channel.open",
   CHANNEL_OPEN_RES: "channel.open.res",
