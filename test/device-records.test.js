@@ -1,0 +1,191 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+
+import {
+  DeviceRegistrationV1,
+  DeviceInboxBindingV1,
+  DeviceSetRecordV1,
+  DeviceRevokeV1,
+  DeviceLinkRequestV1,
+} from "../src/objects/device/index.js";
+
+// Ed25519 keypair: SPKI public (b64, the encoding the records pin) + a node
+// KeyObject private for signing.
+function genKey() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const spki = new Uint8Array(publicKey.export({ format: "der", type: "spki" }));
+  return { publicKeyB64: Buffer.from(spki).toString("base64"), privateKey };
+}
+function sign(privateKey, bytes) {
+  return { alg: "ed25519", sigB64: Buffer.from(crypto.sign(null, Buffer.from(bytes), privateKey)).toString("base64") };
+}
+function verify(publicKeyB64, bytes, sig) {
+  const keyObj = crypto.createPublicKey({ key: Buffer.from(publicKeyB64, "base64"), format: "der", type: "spki" });
+  return crypto.verify(null, Buffer.from(bytes), keyObj, Buffer.from(sig.sigB64, "base64"));
+}
+function deviceId(pubB64) {
+  return DeviceRegistrationV1.deviceIdFor(pubB64);
+}
+function rawKeyB64() {
+  // A raw-32 Ed25519 key (canonical base64 but not SPKI) — must be rejected.
+  return Buffer.from(crypto.randomBytes(32)).toString("base64");
+}
+
+const ISSUED = 1_700_000_000_000;
+const EXPIRES = ISSUED + 30 * 24 * 60 * 60 * 1000;
+
+// --- DeviceInboxBindingV1 (device-signed) ---
+
+function makeBinding({ device, inboxId = "rez:inbox:abc", overrides = {} } = {}) {
+  const body = {
+    v: 1,
+    purpose: "rez:device-inbox-binding:v1",
+    devicePublicKeyB64: device.publicKeyB64,
+    deviceId: deviceId(device.publicKeyB64),
+    inboxId,
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  const sig = sign(device.privateKey, DeviceInboxBindingV1.signableBytes(body));
+  return new DeviceInboxBindingV1({ ...body, sig });
+}
+
+test("DeviceInboxBindingV1: device-signed binding constructs, verifies, round-trips", () => {
+  const device = genKey();
+  const rec = makeBinding({ device });
+  assert.equal(rec.inboxId, "rez:inbox:abc");
+  assert.equal(rec.deviceId, deviceId(device.publicKeyB64));
+  assert.ok(verify(device.publicKeyB64, DeviceInboxBindingV1.signableBytes(rec.toJSON()), rec.sig), "device signature verifies over signableBytes");
+  const back = DeviceInboxBindingV1.fromJSON(rec.toJSON());
+  assert.equal(back.inboxId, rec.inboxId);
+  assert.ok(verify(device.publicKeyB64, DeviceInboxBindingV1.signableBytes(back.toJSON()), back.sig));
+});
+
+test("DeviceInboxBindingV1: rejects deviceId/key mismatch, raw-32 key, blank inbox, bad sig", () => {
+  const device = genKey();
+  assert.throws(() => makeBinding({ device, overrides: { deviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
+  assert.throws(() => makeBinding({ device, overrides: { devicePublicKeyB64: rawKeyB64() } }), /44-byte|deviceId|SPKI/);
+  assert.throws(() => makeBinding({ device, inboxId: "" }), /inboxId/);
+  assert.throws(() => new DeviceInboxBindingV1({
+    v: 1, purpose: "rez:device-inbox-binding:v1", devicePublicKeyB64: device.publicKeyB64,
+    deviceId: deviceId(device.publicKeyB64), inboxId: "x", issuedAtMs: ISSUED, expiresAtMs: EXPIRES,
+    sig: { alg: "nacl", sigB64: "AAAA" },
+  }), /alg must be "ed25519"/);
+});
+
+// --- DeviceSetRecordV1 (account-signed) ---
+
+function makeDeviceSet({ account, devices, revision = 1, overrides = {} } = {}) {
+  const entries = devices.map((d, i) => ({
+    deviceId: deviceId(d.publicKeyB64),
+    devicePublicKeyB64: d.publicKeyB64,
+    inboxId: "rez:inbox:dev" + i,
+  }));
+  const body = {
+    v: 1,
+    purpose: "rez:device-set:v1",
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    revision,
+    devices: entries,
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  const sig = sign(account.privateKey, DeviceSetRecordV1.signableBytes(body));
+  return new DeviceSetRecordV1({ ...body, sig });
+}
+
+test("DeviceSetRecordV1: account-signed multi-device set constructs, verifies, round-trips", () => {
+  const account = genKey();
+  const devices = [genKey(), genKey()];
+  const rec = makeDeviceSet({ account, devices });
+  assert.equal(rec.devices.length, 2);
+  assert.equal(rec.revision, 1);
+  assert.ok(verify(account.publicKeyB64, DeviceSetRecordV1.signableBytes(rec.toJSON()), rec.sig));
+  const back = DeviceSetRecordV1.fromJSON(rec.toJSON());
+  assert.equal(back.devices.length, 2);
+  assert.ok(verify(account.publicKeyB64, DeviceSetRecordV1.signableBytes(back.toJSON()), back.sig));
+});
+
+test("DeviceSetRecordV1: rejects duplicate devices, bad revision, entry self-cert mismatch, empty set", () => {
+  const account = genKey();
+  const d = genKey();
+  assert.throws(() => makeDeviceSet({ account, devices: [d, d] }), /duplicated/);
+  assert.throws(() => makeDeviceSet({ account, devices: [genKey()], revision: 0 }), /positive integer/);
+  assert.throws(() => makeDeviceSet({ account, devices: [genKey()], revision: 1.5 }), /positive integer/);
+  assert.throws(() => makeDeviceSet({ account, devices: [genKey()], overrides: {
+    devices: [{ deviceId: "rez:dev:" + "0".repeat(64), devicePublicKeyB64: genKey().publicKeyB64, inboxId: "rez:inbox:x" }],
+  } }), /must equal rez:dev:sha256/);
+  assert.throws(() => makeDeviceSet({ account, devices: [genKey()], overrides: { devices: [] } }), /non-empty array/);
+});
+
+// --- DeviceRevokeV1 (account-signed) ---
+
+function makeRevoke({ account, revokedDevice, overrides = {} } = {}) {
+  const body = {
+    v: 1,
+    purpose: "rez:device-revoke:v1",
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    revokedDeviceId: deviceId(revokedDevice.publicKeyB64),
+    revokedDevicePublicKeyB64: revokedDevice.publicKeyB64,
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  const sig = sign(account.privateKey, DeviceRevokeV1.signableBytes(body));
+  return new DeviceRevokeV1({ ...body, sig });
+}
+
+test("DeviceRevokeV1: account-signed revoke constructs, verifies, round-trips", () => {
+  const account = genKey();
+  const revoked = genKey();
+  const rec = makeRevoke({ account, revokedDevice: revoked });
+  assert.equal(rec.revokedDeviceId, deviceId(revoked.publicKeyB64));
+  assert.ok(verify(account.publicKeyB64, DeviceRevokeV1.signableBytes(rec.toJSON()), rec.sig));
+  const back = DeviceRevokeV1.fromJSON(rec.toJSON());
+  assert.equal(back.revokedDeviceId, rec.revokedDeviceId);
+});
+
+test("DeviceRevokeV1: rejects revokedDeviceId/key mismatch", () => {
+  const account = genKey();
+  const revoked = genKey();
+  assert.throws(() => makeRevoke({ account, revokedDevice: revoked, overrides: { revokedDeviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
+});
+
+// --- DeviceLinkRequestV1 (new-device-signed) ---
+
+function makeLinkRequest({ account, newDevice, nonceB64 = Buffer.from("ceremony-nonce").toString("base64"), overrides = {} } = {}) {
+  const body = {
+    v: 1,
+    purpose: "rez:device-link-request:v1",
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    newDevicePublicKeyB64: newDevice.publicKeyB64,
+    newDeviceId: deviceId(newDevice.publicKeyB64),
+    ceremonyNonceB64: nonceB64,
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  const sig = sign(newDevice.privateKey, DeviceLinkRequestV1.signableBytes(body));
+  return new DeviceLinkRequestV1({ ...body, sig });
+}
+
+test("DeviceLinkRequestV1: new-device-signed request constructs, verifies, round-trips", () => {
+  const account = genKey();
+  const newDevice = genKey();
+  const rec = makeLinkRequest({ account, newDevice });
+  assert.equal(rec.newDeviceId, deviceId(newDevice.publicKeyB64));
+  // Signed by the NEW DEVICE key (proves control of the device being linked).
+  assert.ok(verify(newDevice.publicKeyB64, DeviceLinkRequestV1.signableBytes(rec.toJSON()), rec.sig));
+  const back = DeviceLinkRequestV1.fromJSON(rec.toJSON());
+  assert.equal(back.ceremonyNonceB64, rec.ceremonyNonceB64);
+});
+
+test("DeviceLinkRequestV1: rejects newDeviceId mismatch and a missing ceremony nonce", () => {
+  const account = genKey();
+  const newDevice = genKey();
+  assert.throws(() => makeLinkRequest({ account, newDevice, overrides: { newDeviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
+  assert.throws(() => makeLinkRequest({ account, newDevice, nonceB64: "" }), /ceremonyNonceB64/);
+});

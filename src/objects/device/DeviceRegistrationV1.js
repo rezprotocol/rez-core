@@ -2,7 +2,12 @@ import { RRecord } from "../../base/index.js";
 import { isNonEmptyString } from "../../util/strings.js";
 import { Hash } from "../../base/util/Hash.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
-import { base64ToBytes, bytesToBase64, bytesToHex } from "../../util/bytes.js";
+import {
+  requireCanonicalSpkiB64,
+  isFiniteNumber,
+  normalizeSig,
+  validateEd25519Sig,
+} from "./deviceRecordShared.js";
 
 export const DEVICE_REGISTRATION_VERSION = 1;
 
@@ -10,14 +15,6 @@ export const DEVICE_REGISTRATION_VERSION = 1;
 // signature can never be reinterpreted as some other canonicalJSONStringify-signed
 // record with a structurally-compatible field set (cf. DebitReceiptV1.networkId).
 export const DEVICE_REGISTRATION_PURPOSE = "rez:device-registration:v1";
-
-// Ed25519 public key encoded as SPKI DER is exactly 44 bytes: a fixed 12-byte
-// AlgorithmIdentifier prefix + the 32-byte raw key. Pinning BOTH the length and
-// the prefix (audit P2) rejects a raw-32 key, a PKCS8 private key, or any other
-// key type masquerading as a device/account identity key.
-const ED25519_SPKI_PREFIX_HEX = "302a300506032b6570032100";
-const ED25519_SPKI_LEN = 44;
-const CANONICAL_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
  * DeviceRegistrationV1 — the account→device authorization that anchors
@@ -95,7 +92,7 @@ export class DeviceRegistrationV1 extends RRecord {
     this.assert(isFiniteNumber(this.issuedAtMs), "DeviceRegistrationV1.issuedAtMs must be number", { issuedAtMs: this.issuedAtMs });
     this.assert(isFiniteNumber(this.expiresAtMs), "DeviceRegistrationV1.expiresAtMs must be number", { expiresAtMs: this.expiresAtMs });
     this.assert(this.expiresAtMs > this.issuedAtMs, "DeviceRegistrationV1.expiresAtMs must be after issuedAtMs", { issuedAtMs: this.issuedAtMs, expiresAtMs: this.expiresAtMs });
-    validateDeviceSig(this.sig);
+    validateEd25519Sig(this.sig, "DeviceRegistrationV1.sig");
   }
 
   /**
@@ -124,56 +121,5 @@ export class DeviceRegistrationV1 extends RRecord {
       expiresAtMs,
     };
     return new TextEncoder().encode(canonicalJSONStringify(body));
-  }
-}
-
-// Accept the canonical `{ alg, sigB64 }` shape. Tolerate a missing/!object sig
-// here (validate() asserts it) so the constructor can assign a stable shape.
-function normalizeSig(sig) {
-  if (!sig || typeof sig !== "object") return sig;
-  return { alg: sig.alg, sigB64: sig.sigB64 };
-}
-
-function requireCanonicalSpkiB64(value, label) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(label + " must be a non-empty canonical base64 string");
-  }
-  if (!CANONICAL_B64.test(value)) {
-    throw new Error(label + " must be canonical standard base64 (no whitespace)");
-  }
-  let bytes;
-  try {
-    bytes = base64ToBytes(value);
-  } catch (err) {
-    throw new Error(label + " is not decodable base64: " + (err && err.message ? err.message : "unknown"));
-  }
-  // Canonical round-trip: decode then re-encode must reproduce the input exactly.
-  // Rejects non-canonical strings that base64ToBytes tolerates (stray padding,
-  // unused trailing bits) which would hash to a different deviceId than the key.
-  if (bytesToBase64(bytes) !== value) {
-    throw new Error(label + " must be canonical base64 (round-trip mismatch)");
-  }
-  if (bytes.length !== ED25519_SPKI_LEN) {
-    throw new Error(label + " must be a 44-byte Ed25519 SPKI DER public key, got " + bytes.length + " bytes");
-  }
-  if (bytesToHex(bytes.subarray(0, 12)) !== ED25519_SPKI_PREFIX_HEX) {
-    throw new Error(label + " must carry the Ed25519 SPKI DER prefix");
-  }
-  return value;
-}
-
-function isFiniteNumber(value) {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function validateDeviceSig(sig) {
-  if (!sig || typeof sig !== "object") {
-    throw new Error("DeviceRegistrationV1.sig must be an object");
-  }
-  if (sig.alg !== "ed25519") {
-    throw new Error('DeviceRegistrationV1.sig.alg must be "ed25519"');
-  }
-  if (typeof sig.sigB64 !== "string" || sig.sigB64.length === 0 || !CANONICAL_B64.test(sig.sigB64)) {
-    throw new Error("DeviceRegistrationV1.sig.sigB64 must be a non-empty canonical base64 string");
   }
 }
