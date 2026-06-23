@@ -5,3 +5,13 @@ export { DeviceSetRecordV1, DEVICE_SET_VERSION, DEVICE_SET_PURPOSE, DEVICE_SET_R
 export { DeviceRevokeV1, DEVICE_REVOKE_VERSION, DEVICE_REVOKE_PURPOSE } from "./DeviceRevokeV1.js";
 export { DeviceLinkRequestV1, DEVICE_LINK_REQUEST_VERSION, DEVICE_LINK_REQUEST_PURPOSE } from "./DeviceLinkRequestV1.js";
 export { DevicePrekeyBundleV1, DEVICE_PREKEY_BUNDLE_VERSION, DEVICE_PREKEY_BUNDLE_PURPOSE } from "./DevicePrekeyBundleV1.js";
+export {
+  ACCOUNT_CAPABILITY_ACTIONS,
+  ACCOUNT_CAPABILITY_CERT_ID_PREFIX,
+  isKnownCapability,
+  requireCapabilityList,
+  deriveAccountCapabilityCertId,
+} from "./accountCapabilityShared.js";
+export { AccountDeviceCapabilityV1, ACCOUNT_DEVICE_CAPABILITY_VERSION, ACCOUNT_DEVICE_CAPABILITY_PURPOSE } from "./AccountDeviceCapabilityV1.js";
+export { AccountDeviceCapabilityRevokeV1, ACCOUNT_DEVICE_CAPABILITY_REVOKE_VERSION, ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE } from "./AccountDeviceCapabilityRevokeV1.js";
+export { verifyAccountAuthority } from "./verifyAccountAuthority.js";
