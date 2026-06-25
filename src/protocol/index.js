@@ -15,6 +15,13 @@ export {
   buildDurableRecordV1,
 } from "./durableRecordV1.js";
 export {
+  DURABLE_RECORD_V2_VERSION,
+  durableRecordV2Slot,
+  durableRecordV2SignableBytes,
+  buildDurableRecordV2,
+  verifyDurableRecordV2,
+} from "./durableRecordV2.js";
+export {
   MESH_ADDRESS_KINDS,
   buildInboxAddress,
   buildRendezvousAddress,
