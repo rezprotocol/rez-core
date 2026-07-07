@@ -103,6 +103,10 @@ test("direct mode: the account root is authorized for everything; a non-account 
   assert.equal(ok.ok, true);
   assert.equal(ok.mode, "direct");
   assert.deepEqual([...ok.grantedCapabilities].sort(), [...ACCOUNT_CAPABILITY_ACTIONS].sort());
+  // S11: device.add is in the locked vocab and a direct (B-sign) account is
+  // authorized for it (the pin for the vocab addition).
+  assert.ok(ACCOUNT_CAPABILITY_ACTIONS.includes("device.add"), "device.add is a known capability");
+  assert.ok(ok.grantedCapabilities.includes("device.add"), "the account root is authorized for device.add");
 
   const bad = await verifyAccountAuthority({
     expectedAccountIdentityPublicKeyB64: B.publicKeyB64,

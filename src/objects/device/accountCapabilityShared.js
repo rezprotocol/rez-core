@@ -19,9 +19,15 @@ import { canonicalJSONStringify } from "../../util/canonicalize.js";
 
 // The locked vocabulary (audit call #2). Order is irrelevant — capabilities are
 // validated by membership, and a cert's `capabilities` array is hashed as-carried.
+// `device.add` (S11) authorizes adding a SIBLING device to the account via a
+// serialized home mutation — a distinct high-privilege authority, parallel to
+// `device.revoke`, deliberately NOT covered by `deviceSet.publish` (which is a
+// propagation authority). Appending is additive: existing certs are unaffected
+// (they hash their own carried arrays), and direct-mode (B-sign) grants expand.
 export const ACCOUNT_CAPABILITY_ACTIONS = Object.freeze([
   "peerLink.create",
   "deviceSet.publish",
+  "device.add",
   "device.revoke",
   "capability.delegate",
   "capability.revoke",
