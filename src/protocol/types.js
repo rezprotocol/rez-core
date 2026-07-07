@@ -44,6 +44,17 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   DEVICE_REVOKE: "device.revoke",
   DEVICE_REVOKE_RES: "device.revoke.res",
 
+  // --- serialized account device mutations + authority state (S2.5 S11) ---
+  // account.deviceMutation.submit: a device submits a signed AccountDeviceMutationV1
+  //   (add/revoke a sibling); the home serializes it under a per-account lock and
+  //   returns {revision, devices, authorityState}. account.authorityState.get:
+  //   the home serves the canonical {epoch, revokedCertIds, minValidIssuedAtMs}
+  //   feeding every verifier's revocationState with bounded staleness.
+  ACCOUNT_DEVICE_MUTATION_SUBMIT: "account.deviceMutation.submit",
+  ACCOUNT_DEVICE_MUTATION_SUBMIT_RES: "account.deviceMutation.submit.res",
+  ACCOUNT_AUTHORITY_STATE_GET: "account.authorityState.get",
+  ACCOUNT_AUTHORITY_STATE_GET_RES: "account.authorityState.get.res",
+
   // --- channel operations (5, stub) ---
   CHANNEL_OPEN: "channel.open",
   CHANNEL_OPEN_RES: "channel.open.res",
