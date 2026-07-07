@@ -18,6 +18,8 @@ export {
 export { KeystoreStore } from "./KeystoreStore.js";
 export {
   KEYSTORE_PAYLOAD_VERSION,
+  KEYSTORE_PAYLOAD_VERSION_DELEGATED,
   createKeystoreAccount,
+  createDelegatedKeystoreAccount,
   unlockKeystoreAccount,
 } from "./KeystoreAccount.js";
