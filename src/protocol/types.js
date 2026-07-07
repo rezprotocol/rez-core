@@ -55,6 +55,17 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   ACCOUNT_AUTHORITY_STATE_GET: "account.authorityState.get",
   ACCOUNT_AUTHORITY_STATE_GET_RES: "account.authorityState.get.res",
 
+  // --- multi-device fan-out: home-aggregated device set (S2.5 S12) ---
+  // account.deviceBundle.publish: a device self-publishes its DevicePrekeyBundleV1
+  //   (self-contained: deviceId + pubkey + inbox + prekeys, device-signed) to its
+  //   account HOME. account.deviceSet.get: the home returns ALL active devices'
+  //   bundles for the authenticated account so a publishing device can assemble the
+  //   MULTI-device DeviceSetRecordV1 (sibling pubkeys/inboxes/prekeys) sealed per peer.
+  ACCOUNT_DEVICE_BUNDLE_PUBLISH: "account.deviceBundle.publish",
+  ACCOUNT_DEVICE_BUNDLE_PUBLISH_RES: "account.deviceBundle.publish.res",
+  ACCOUNT_DEVICE_SET_GET: "account.deviceSet.get",
+  ACCOUNT_DEVICE_SET_GET_RES: "account.deviceSet.get.res",
+
   // --- channel operations (5, stub) ---
   CHANNEL_OPEN: "channel.open",
   CHANNEL_OPEN_RES: "channel.open.res",
