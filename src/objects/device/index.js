@@ -15,4 +15,5 @@ export {
 export { AccountDeviceCapabilityV1, ACCOUNT_DEVICE_CAPABILITY_VERSION, ACCOUNT_DEVICE_CAPABILITY_PURPOSE } from "./AccountDeviceCapabilityV1.js";
 export { AccountDeviceCapabilityRevokeV1, ACCOUNT_DEVICE_CAPABILITY_REVOKE_VERSION, ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE } from "./AccountDeviceCapabilityRevokeV1.js";
 export { AccountDeviceMutationV1, ACCOUNT_DEVICE_MUTATION_VERSION, ACCOUNT_DEVICE_MUTATION_PURPOSE, ACCOUNT_DEVICE_MUTATION_ACTIONS } from "./AccountDeviceMutationV1.js";
+export { AccountAuthorityStateV1, ACCOUNT_AUTHORITY_STATE_VERSION, ACCOUNT_AUTHORITY_STATE_PURPOSE, ACCOUNT_AUTHORITY_STATE_RECORD_KIND } from "./AccountAuthorityStateV1.js";
 export { verifyAccountAuthority } from "./verifyAccountAuthority.js";
