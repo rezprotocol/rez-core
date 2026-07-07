@@ -67,7 +67,9 @@ export class DeviceLinkRequestV1 extends RRecord {
     this.assert(isNonEmptyString(this.newDeviceId), "DeviceLinkRequestV1.newDeviceId must be non-empty string", { newDeviceId: this.newDeviceId });
     const expectedDeviceId = DeviceRegistrationV1.deviceIdFor(this.newDevicePublicKeyB64);
     this.assert(this.newDeviceId === expectedDeviceId, "DeviceLinkRequestV1.newDeviceId must equal rez:dev:sha256(newDevicePublicKeyB64)", { newDeviceId: this.newDeviceId, expectedDeviceId });
-    requireCanonicalB64(this.ceremonyNonceB64, "DeviceLinkRequestV1.ceremonyNonceB64");
+    // 256-bit pin (S10): the nonce is the PSK-derived ceremony binding — a
+    // shorter value would weaken the replay binding it exists to provide.
+    requireCanonicalB64(this.ceremonyNonceB64, "DeviceLinkRequestV1.ceremonyNonceB64", { length: 32 });
     this.assert(isFiniteNumber(this.issuedAtMs), "DeviceLinkRequestV1.issuedAtMs must be number", { issuedAtMs: this.issuedAtMs });
     this.assert(isFiniteNumber(this.expiresAtMs), "DeviceLinkRequestV1.expiresAtMs must be number", { expiresAtMs: this.expiresAtMs });
     this.assert(this.expiresAtMs > this.issuedAtMs, "DeviceLinkRequestV1.expiresAtMs must be after issuedAtMs", { issuedAtMs: this.issuedAtMs, expiresAtMs: this.expiresAtMs });

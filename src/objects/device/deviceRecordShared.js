@@ -66,6 +66,24 @@ export function requireCanonicalSpkiB64(value, label) {
   return v;
 }
 
+// X25519 public key as SPKI DER — same 12-byte prefix shape as Ed25519 but
+// with the X25519 OID (…6e vs …70). Pinning it rejects an Ed25519 signing key
+// (or anything else) masquerading as a DH point before it reaches dhDerive.
+export const X25519_SPKI_PREFIX_HEX = "302a300506032b656e032100";
+export const X25519_SPKI_LEN = 44;
+
+export function requireCanonicalX25519SpkiB64(value, label) {
+  const v = requireCanonicalB64(value, label);
+  const bytes = base64ToBytes(v);
+  if (bytes.length !== X25519_SPKI_LEN) {
+    throw new Error(label + " must be a 44-byte X25519 SPKI DER public key, got " + bytes.length + " bytes");
+  }
+  if (bytesToHex(bytes.subarray(0, 12)) !== X25519_SPKI_PREFIX_HEX) {
+    throw new Error(label + " must carry the X25519 SPKI DER prefix");
+  }
+  return v;
+}
+
 // Accept the canonical `{ alg, sigB64 }` shape. Tolerate a missing/!object sig
 // here (the record's validate() asserts it) so the constructor can assign a
 // stable shape.

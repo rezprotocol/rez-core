@@ -157,7 +157,7 @@ test("DeviceRevokeV1: rejects revokedDeviceId/key mismatch", () => {
 
 // --- DeviceLinkRequestV1 (new-device-signed) ---
 
-function makeLinkRequest({ account, newDevice, nonceB64 = Buffer.from("ceremony-nonce").toString("base64"), overrides = {} } = {}) {
+function makeLinkRequest({ account, newDevice, nonceB64 = Buffer.from(crypto.randomBytes(32)).toString("base64"), overrides = {} } = {}) {
   const body = {
     v: 1,
     purpose: "rez:device-link-request:v1",
@@ -189,6 +189,8 @@ test("DeviceLinkRequestV1: rejects newDeviceId mismatch and a missing ceremony n
   const newDevice = genKey();
   assert.throws(() => makeLinkRequest({ account, newDevice, overrides: { newDeviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
   assert.throws(() => makeLinkRequest({ account, newDevice, nonceB64: "" }), /ceremonyNonceB64/);
+  // S10 pin: the nonce is the PSK-derived 256-bit ceremony binding.
+  assert.throws(() => makeLinkRequest({ account, newDevice, nonceB64: Buffer.from("short").toString("base64") }), /must decode to 32 bytes/);
 });
 
 // --- DevicePrekeyBundleV1 (device-signed) ---
