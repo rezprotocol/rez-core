@@ -114,13 +114,16 @@ export class AccountDeviceMutationV1 extends RRecord {
       this.assert(isNonEmptyString(binding.deviceId), "AccountDeviceMutationV1 device.add binding must carry a deviceId", { deviceId: binding.deviceId });
     } else {
       // device.revoke: a self-cert deviceId, and an optional revoked cert id. The
-      // deviceId must be CANONICAL (`rez:dev:<64-lowercase-hex>` = deviceIdFor(pub)),
-      // not merely `rez:dev:`-prefixed. A bare-prefix string is forgeable: the home
-      // writes a durable terminal tombstone for a revoke target, so a loose prefix
-      // check would let a revoke-capable device mint tombstones for arbitrary
-      // malformed ids. Matching deviceIdFor's shape here (as DeviceRevokeV1 already
-      // does via its key-proven `=== deviceIdFor(pub)` check) bounds that at the
-      // record boundary. (audit R4 F1 — DoS-syntax guard.)
+      // deviceId must have CANONICAL SYNTAX (`rez:dev:<64-lowercase-hex>`), not merely
+      // a `rez:dev:` prefix. NOTE this proves SHAPE only, NOT `deviceId ===
+      // deviceIdFor(pub)`: unlike DeviceRevokeV1 — which carries revokedDevicePublicKeyB64
+      // and PROVES the key relationship — this record has no pubkey for the revoke
+      // target, so it cannot be key-proven here. The syntax guard still narrows the
+      // forgeable-id space: the home writes a durable terminal tombstone for a revoke
+      // target, and a loose prefix check would let a revoke-capable device mint
+      // tombstones for arbitrary malformed strings. This is an upstream early-reject;
+      // the registry independently enforces canonical shape as the invariant owner.
+      // (audit R4 F1 — DoS-syntax guard.)
       this.assert(isNonEmptyString(target.revokedDeviceId), "AccountDeviceMutationV1 device.revoke target.revokedDeviceId must be a non-empty string", { target });
       this.assert(
         isCanonicalDeviceId(target.revokedDeviceId),
