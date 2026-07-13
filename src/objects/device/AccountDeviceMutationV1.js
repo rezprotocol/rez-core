@@ -2,6 +2,7 @@ import { RRecord } from "../../base/index.js";
 import { isNonEmptyString } from "../../util/strings.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
 import { DeviceInboxBindingV1 } from "./DeviceInboxBindingV1.js";
+import { isCanonicalDeviceId } from "./DeviceRegistrationV1.js";
 import {
   requireCanonicalSpkiB64,
   isFiniteNumber,
@@ -112,11 +113,18 @@ export class AccountDeviceMutationV1 extends RRecord {
       // Keep the constructed record from being GC-flagged as unused.
       this.assert(isNonEmptyString(binding.deviceId), "AccountDeviceMutationV1 device.add binding must carry a deviceId", { deviceId: binding.deviceId });
     } else {
-      // device.revoke: a self-cert deviceId, and an optional revoked cert id.
+      // device.revoke: a self-cert deviceId, and an optional revoked cert id. The
+      // deviceId must be CANONICAL (`rez:dev:<64-lowercase-hex>` = deviceIdFor(pub)),
+      // not merely `rez:dev:`-prefixed. A bare-prefix string is forgeable: the home
+      // writes a durable terminal tombstone for a revoke target, so a loose prefix
+      // check would let a revoke-capable device mint tombstones for arbitrary
+      // malformed ids. Matching deviceIdFor's shape here (as DeviceRevokeV1 already
+      // does via its key-proven `=== deviceIdFor(pub)` check) bounds that at the
+      // record boundary. (audit R4 F1 — DoS-syntax guard.)
       this.assert(isNonEmptyString(target.revokedDeviceId), "AccountDeviceMutationV1 device.revoke target.revokedDeviceId must be a non-empty string", { target });
       this.assert(
-        String(target.revokedDeviceId).startsWith("rez:dev:"),
-        "AccountDeviceMutationV1 device.revoke target.revokedDeviceId must be a rez:dev: id",
+        isCanonicalDeviceId(target.revokedDeviceId),
+        "AccountDeviceMutationV1 device.revoke target.revokedDeviceId must be a canonical rez:dev:<64-hex> id",
         { revokedDeviceId: target.revokedDeviceId },
       );
       if (target.revokedCertId !== undefined && target.revokedCertId !== null) {

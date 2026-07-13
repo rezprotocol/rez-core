@@ -115,7 +115,11 @@ test("rejects an unknown action, bad expectedRevision, and malformed targets", (
   assert.throws(() => makeMutation({ account, signer: account, action: "device.rename", target: {} }), /action must be/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) }, overrides: { expectedRevision: -1 } }), /expectedRevision must be a non-negative integer/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: {} } }), /device.add target.deviceInboxBinding is invalid/);
-  assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "not-a-dev-id" } }), /must be a rez:dev: id/);
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "not-a-dev-id" } }), /must be a canonical rez:dev/);
+  // A merely `rez:dev:`-prefixed but non-canonical id (audit R4 F1 DoS-syntax
+  // guard) — the forgeable tombstone vector — is now rejected at the record.
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "rez:dev:ghost" } }), /must be a canonical rez:dev/);
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "rez:dev:" + "A".repeat(64) } }), /must be a canonical rez:dev/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: deviceId(sibling.publicKeyB64), revokedCertId: "not-a-cap" } }), /must be a rez:cap: id or omitted/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) }, overrides: { opId: "" } }), /opId must be a non-empty string/);
 });
