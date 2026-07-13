@@ -1,4 +1,4 @@
-export { DeviceRegistrationV1, DEVICE_REGISTRATION_VERSION, DEVICE_REGISTRATION_PURPOSE } from "./DeviceRegistrationV1.js";
+export { DeviceRegistrationV1, DEVICE_REGISTRATION_VERSION, DEVICE_REGISTRATION_PURPOSE, DEVICE_ID_PATTERN, isCanonicalDeviceId } from "./DeviceRegistrationV1.js";
 export { verifyDeviceRegistrationV1 } from "./verifyDeviceRegistrationV1.js";
 export { DeviceInboxBindingV1, DEVICE_INBOX_BINDING_VERSION, DEVICE_INBOX_BINDING_PURPOSE } from "./DeviceInboxBindingV1.js";
 export { DeviceSetRecordV1, DEVICE_SET_VERSION, DEVICE_SET_PURPOSE, DEVICE_SET_RECORD_KIND } from "./DeviceSetRecordV1.js";

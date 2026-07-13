@@ -16,6 +16,27 @@ export const DEVICE_REGISTRATION_VERSION = 1;
 // record with a structurally-compatible field set (cf. DebitReceiptV1.networkId).
 export const DEVICE_REGISTRATION_PURPOSE = "rez:device-registration:v1";
 
+// The canonical, self-certifying deviceId syntax: `rez:dev:` + the 64-char
+// lowercase-hex sha256 of the device's canonical SPKI public key. This is a
+// fixed-length string (72 chars). SSOT for the SHAPE of a deviceId; `deviceIdFor`
+// is the SSOT for its VALUE. Anchored (`^…$`) so a deviceId can carry no extra
+// bytes — the home tombstones a revoked deviceId as durable state, and a revoke
+// target that is NOT proven `= deviceIdFor(pub)` (the AccountDeviceMutationV1
+// revoke path carries only the string) must be syntax-bounded before it can be
+// persisted, or a revoke-capable device could mint unbounded fake tombstones.
+export const DEVICE_ID_PATTERN = /^rez:dev:[0-9a-f]{64}$/;
+
+/**
+ * True iff `id` is a syntactically canonical deviceId (`rez:dev:<64 lc-hex>`).
+ * A cheap, key-free syntax gate — it does NOT prove the id matches a real device
+ * key (that is `deviceIdFor`), only that it is well-formed and length-bounded.
+ * @param {unknown} id
+ * @returns {boolean}
+ */
+export function isCanonicalDeviceId(id) {
+  return typeof id === "string" && DEVICE_ID_PATTERN.test(id);
+}
+
 /**
  * DeviceRegistrationV1 — the account→device authorization that anchors
  * multi-device E2EE (S2.5). The ACCOUNT identity key signs a binding that

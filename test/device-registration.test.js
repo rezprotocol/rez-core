@@ -258,3 +258,26 @@ test("nowMs enforces the issued/expires window", async () => {
   assert.equal(expired.ok, false);
   assert.equal(expired.reason, "expired");
 });
+
+test("isCanonicalDeviceId — accepts a real deviceIdFor output, rejects malformed", async () => {
+  const { isCanonicalDeviceId, DEVICE_ID_PATTERN } = await import("../src/objects/device/DeviceRegistrationV1.js");
+  const { publicKey } = generateEd25519KeyPair();
+  const realId = DeviceRegistrationV1.deviceIdFor(b64(publicKey));
+
+  assert.equal(isCanonicalDeviceId(realId), true, "a genuine deviceIdFor output is canonical");
+  assert.match(realId, DEVICE_ID_PATTERN);
+
+  // Malformed / forgery-shaped ids the tombstone syntax gate must reject.
+  assert.equal(isCanonicalDeviceId(""), false);
+  assert.equal(isCanonicalDeviceId("rez:dev:"), false);
+  assert.equal(isCanonicalDeviceId("rez:dev:" + "a".repeat(63)), false, "63 hex chars is too short");
+  assert.equal(isCanonicalDeviceId("rez:dev:" + "a".repeat(65)), false, "65 hex chars is too long");
+  assert.equal(isCanonicalDeviceId("rez:dev:" + "A".repeat(64)), false, "uppercase hex is not canonical");
+  assert.equal(isCanonicalDeviceId("rez:dev:" + "g".repeat(64)), false, "non-hex chars rejected");
+  assert.equal(isCanonicalDeviceId("rez:dev:" + "a".repeat(64) + "\n"), false, "trailing bytes rejected (anchored)");
+  assert.equal(isCanonicalDeviceId("prefix rez:dev:" + "a".repeat(64)), false, "leading bytes rejected (anchored)");
+  assert.equal(isCanonicalDeviceId("rez:inbox:" + "a".repeat(64)), false, "wrong prefix rejected");
+  assert.equal(isCanonicalDeviceId(null), false);
+  assert.equal(isCanonicalDeviceId(12345), false);
+  assert.equal(isCanonicalDeviceId({ toString: () => "rez:dev:" + "a".repeat(64) }), false, "non-string rejected");
+});
