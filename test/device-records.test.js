@@ -6,7 +6,6 @@ import {
   DeviceRegistrationV1,
   DeviceInboxBindingV1,
   DeviceSetRecordV1,
-  DeviceRevokeV1,
   DeviceLinkRequestV1,
   DevicePrekeyBundleV1,
 } from "../src/objects/device/index.js";
@@ -120,39 +119,6 @@ test("DeviceSetRecordV1: rejects duplicate devices, bad revision, entry self-cer
     devices: [{ deviceId: "rez:dev:" + "0".repeat(64), devicePublicKeyB64: genKey().publicKeyB64, inboxId: "rez:inbox:x" }],
   } }), /must equal rez:dev:sha256/);
   assert.throws(() => makeDeviceSet({ account, devices: [genKey()], overrides: { devices: [] } }), /non-empty array/);
-});
-
-// --- DeviceRevokeV1 (account-signed) ---
-
-function makeRevoke({ account, revokedDevice, overrides = {} } = {}) {
-  const body = {
-    v: 1,
-    purpose: "rez:device-revoke:v1",
-    accountIdentityPublicKeyB64: account.publicKeyB64,
-    revokedDeviceId: deviceId(revokedDevice.publicKeyB64),
-    revokedDevicePublicKeyB64: revokedDevice.publicKeyB64,
-    issuedAtMs: ISSUED,
-    expiresAtMs: EXPIRES,
-    ...overrides,
-  };
-  const sig = sign(account.privateKey, DeviceRevokeV1.signableBytes(body));
-  return new DeviceRevokeV1({ ...body, sig });
-}
-
-test("DeviceRevokeV1: account-signed revoke constructs, verifies, round-trips", () => {
-  const account = genKey();
-  const revoked = genKey();
-  const rec = makeRevoke({ account, revokedDevice: revoked });
-  assert.equal(rec.revokedDeviceId, deviceId(revoked.publicKeyB64));
-  assert.ok(verify(account.publicKeyB64, DeviceRevokeV1.signableBytes(rec.toJSON()), rec.sig));
-  const back = DeviceRevokeV1.fromJSON(rec.toJSON());
-  assert.equal(back.revokedDeviceId, rec.revokedDeviceId);
-});
-
-test("DeviceRevokeV1: rejects revokedDeviceId/key mismatch", () => {
-  const account = genKey();
-  const revoked = genKey();
-  assert.throws(() => makeRevoke({ account, revokedDevice: revoked, overrides: { revokedDeviceId: "rez:dev:" + "0".repeat(64) } }), /must equal rez:dev:sha256/);
 });
 
 // --- DeviceLinkRequestV1 (new-device-signed) ---

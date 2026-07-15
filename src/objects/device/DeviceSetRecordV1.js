@@ -33,8 +33,8 @@ export const DEVICE_SET_RECORD_KIND = "peerlink-device-set";
  * `revision` is a MONOTONIC counter (not a wall clock): peers honor the highest
  * revision and treat a lower one as stale. A sender that sees an older set
  * treats unknown devices as absent rather than failing; home revoke enforcement
- * (DeviceRevokeV1 / DeviceInboxBindingV1) is the backstop that makes a lagging
- * set safe.
+ * (the serialized account.deviceMutation device.revoke / DeviceInboxBindingV1) is
+ * the backstop that makes a lagging set safe.
  *
  * Signed body (everything except `sig`):
  *   { v, purpose, accountIdentityPublicKeyB64, revision,

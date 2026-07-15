@@ -2,7 +2,7 @@ import { base64ToBytes, bytesToBase64, bytesToHex } from "../../util/bytes.js";
 
 /**
  * Shared validation primitives for the S2.5 device-record family
- * (DeviceRegistrationV1, DeviceInboxBindingV1, DeviceSetRecordV1, DeviceRevokeV1,
+ * (DeviceRegistrationV1, DeviceInboxBindingV1, DeviceSetRecordV1,
  * DeviceLinkRequestV1, …). SSOT: every device record validates key/signature
  * encodings identically, so a hardening (e.g. the audit's SPKI pinning) lands in
  * ONE place instead of drifting across siblings.

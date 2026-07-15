@@ -120,9 +120,8 @@ export class AccountDeviceMutationV1 extends RRecord {
       // device.revoke: a self-cert deviceId, and an optional revoked cert id. The
       // deviceId must have CANONICAL SYNTAX (`rez:dev:<64-lowercase-hex>`), not merely
       // a `rez:dev:` prefix. NOTE this proves SHAPE only, NOT `deviceId ===
-      // deviceIdFor(pub)`: unlike DeviceRevokeV1 — which carries revokedDevicePublicKeyB64
-      // and PROVES the key relationship — this record has no pubkey for the revoke
-      // target, so it cannot be key-proven here. The syntax guard still narrows the
+      // deviceIdFor(pub)`: this record carries no pubkey for the revoke target, so it
+      // cannot be key-proven here. The syntax guard still narrows the
       // forgeable-id space: the home writes a durable terminal tombstone for a revoke
       // target, and a loose prefix check would let a revoke-capable device mint
       // tombstones for arbitrary malformed strings. This is an upstream early-reject;

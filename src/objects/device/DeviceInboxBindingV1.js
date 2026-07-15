@@ -27,8 +27,9 @@ export const DEVICE_INBOX_BINDING_PURPOSE = "rez:device-inbox-binding:v1";
  * (account-signed) — the prekey bundle staples them under one device→account root.
  *
  * Home enforcement (S2.5 fix P1a): the durable inbox keys revocation on the
- * device — a DeviceRevokeV1 invalidates this binding at the home, after which
- * append/read/cursorAck fail closed for the device's inbox.
+ * device — a serialized account.deviceMutation (device.revoke) invalidates this
+ * binding at the home, after which append/read/cursorAck fail closed for the
+ * device's inbox.
  *
  * Signed body (everything except `sig`):
  *   { v, purpose, devicePublicKeyB64, deviceId, inboxId, issuedAtMs, expiresAtMs }
