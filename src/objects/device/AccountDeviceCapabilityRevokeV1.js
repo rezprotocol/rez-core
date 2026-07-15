@@ -1,5 +1,4 @@
 import { RRecord } from "../../base/index.js";
-import { isNonEmptyString } from "../../util/strings.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
 import {
   requireCanonicalSpkiB64,
@@ -7,7 +6,7 @@ import {
   normalizeSig,
   validateEd25519Sig,
 } from "./deviceRecordShared.js";
-import { ACCOUNT_CAPABILITY_CERT_ID_PREFIX } from "./accountCapabilityShared.js";
+import { isCanonicalAccountCapabilityCertId } from "./accountCapabilityShared.js";
 
 export const ACCOUNT_DEVICE_CAPABILITY_REVOKE_VERSION = 1;
 export const ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE = "rez:account-device-capability-revoke:v1";
@@ -65,9 +64,11 @@ export class AccountDeviceCapabilityRevokeV1 extends RRecord {
     this.assert(this.v === ACCOUNT_DEVICE_CAPABILITY_REVOKE_VERSION, "AccountDeviceCapabilityRevokeV1.v must be 1", { v: this.v });
     this.assert(this.purpose === ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE, "AccountDeviceCapabilityRevokeV1.purpose must be " + ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE, { purpose: this.purpose });
     requireCanonicalSpkiB64(this.accountIdentityPublicKeyB64, "AccountDeviceCapabilityRevokeV1.accountIdentityPublicKeyB64");
+    // Audit R4 F3-remediation finding 2: EXACT canonical shape (rez:cap: + 64 lowercase
+    // hex), the SSOT predicate — not a bare prefix that accepts arbitrary content.
     this.assert(
-      isNonEmptyString(this.revokedCertId) && this.revokedCertId.startsWith(ACCOUNT_CAPABILITY_CERT_ID_PREFIX),
-      "AccountDeviceCapabilityRevokeV1.revokedCertId must be a rez:cap: id",
+      isCanonicalAccountCapabilityCertId(this.revokedCertId),
+      "AccountDeviceCapabilityRevokeV1.revokedCertId must be a canonical rez:cap:<64-hex> id",
       { revokedCertId: this.revokedCertId },
     );
     this.assert(Number.isInteger(this.authorityEpoch) && this.authorityEpoch >= 0, "AccountDeviceCapabilityRevokeV1.authorityEpoch must be a non-negative integer", { authorityEpoch: this.authorityEpoch });

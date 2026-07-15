@@ -78,7 +78,9 @@ test("a delegated device may sign the authority state (enforcement lives in the 
 test("rejects a negative epoch, a non-cap revoked id, and a negative cutoff", () => {
   const account = genKey();
   assert.throws(() => make({ account, signer: account, overrides: { epoch: -1 } }), /epoch must be a non-negative integer/);
-  assert.throws(() => make({ account, signer: account, revokedCertIds: ["not-a-cap"] }), /revokedCertIds entries must be rez:cap: ids/);
+  assert.throws(() => make({ account, signer: account, revokedCertIds: ["not-a-cap"] }), /revokedCertIds entries must be canonical rez:cap:<64-hex> ids/);
+  // F3-remediation finding 2: a bare rez:cap: prefix is no longer enough.
+  assert.throws(() => make({ account, signer: account, revokedCertIds: ["rez:cap:revoked-leaf"] }), /revokedCertIds entries must be canonical rez:cap:<64-hex> ids/);
   assert.throws(() => make({ account, signer: account, overrides: { minValidIssuedAtMs: -5 } }), /minValidIssuedAtMs must be a non-negative number/);
 });
 

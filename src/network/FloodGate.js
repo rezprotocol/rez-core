@@ -67,6 +67,16 @@ export class FloodGate {
     this.#lastWarn = 0;
   }
 
+  /**
+   * Drop the per-connection token bucket for a connKey whose connection has closed. Without
+   * this, one bucket accumulates per unique connKey forever, so reconnect churn (each session
+   * uses a fresh connKey) grows process memory unbounded even after every session closes
+   * (audit R4 F3-remediation round-8 finding 4). Callers release on session stop.
+   */
+  release(connKey) {
+    this.#pool.delete(String(connKey || "uplink:unknown"));
+  }
+
   #bucket(connKey) {
     const key = String(connKey || "uplink:unknown");
     let bucket = this.#pool.get(key);

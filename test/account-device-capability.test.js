@@ -85,7 +85,9 @@ test("certId is deterministic and the signature binds it; bad fields are rejecte
   assert.throws(() => new AccountDeviceCapabilityV1({ ...json, certId: "rez:cap:deadbeef" }), /certId must be the deterministic/);
   assert.throws(() => new AccountDeviceCapabilityV1({ ...json, capabilities: ["not.a.capability"] }), /unknown capability/);
   assert.throws(() => new AccountDeviceCapabilityV1({ ...json, granteeDeviceId: "rez:dev:wrong" }), /granteeDeviceId must equal/);
-  assert.throws(() => new AccountDeviceCapabilityV1({ ...json, parentCertId: "nope" }), /parentCertId must be null or a rez:cap/);
+  assert.throws(() => new AccountDeviceCapabilityV1({ ...json, parentCertId: "nope" }), /parentCertId must be null or a canonical rez:cap/);
+  // F3-remediation finding 2: a bare rez:cap: prefix (not 64 lowercase hex) is rejected.
+  assert.throws(() => new AccountDeviceCapabilityV1({ ...json, parentCertId: "rez:cap:parent-leaf" }), /parentCertId must be null or a canonical rez:cap/);
   assert.throws(() => new AccountDeviceCapabilityV1({ ...json, maxDelegationDepth: -1 }), /maxDelegationDepth must be a non-negative integer/);
   assert.throws(() => new AccountDeviceCapabilityV1({ ...json, capabilities: ["deviceSet.publish", "deviceSet.publish"] }), /duplicate capability/);
 });
@@ -341,5 +343,7 @@ test("AccountDeviceCapabilityRevokeV1 validates structurally and round-trips its
   const keyObj = crypto.createPublicKey({ key: Buffer.from(B.publicKeyB64, "base64"), format: "der", type: "spki" });
   assert.equal(crypto.verify(null, Buffer.from(AccountDeviceCapabilityRevokeV1.signableBytes(revoke)), keyObj, Buffer.from(revoke.sig.sigB64, "base64")), true);
 
-  assert.throws(() => new AccountDeviceCapabilityRevokeV1({ ...body, revokedCertId: "not-a-cap-id", sig: { alg: "ed25519", sigB64 } }), /revokedCertId must be a rez:cap/);
+  assert.throws(() => new AccountDeviceCapabilityRevokeV1({ ...body, revokedCertId: "not-a-cap-id", sig: { alg: "ed25519", sigB64 } }), /revokedCertId must be a canonical rez:cap/);
+  // F3-remediation finding 2: a bare rez:cap: prefix is rejected (must be 64 lowercase hex).
+  assert.throws(() => new AccountDeviceCapabilityRevokeV1({ ...body, revokedCertId: "rez:cap:revoked-leaf", sig: { alg: "ed25519", sigB64 } }), /revokedCertId must be a canonical rez:cap/);
 });

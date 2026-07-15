@@ -11,7 +11,7 @@ import {
 import {
   requireCapabilityList,
   deriveAccountCapabilityCertId,
-  ACCOUNT_CAPABILITY_CERT_ID_PREFIX,
+  isCanonicalAccountCapabilityCertId,
 } from "./accountCapabilityShared.js";
 
 export const ACCOUNT_DEVICE_CAPABILITY_VERSION = 1;
@@ -91,8 +91,8 @@ export class AccountDeviceCapabilityV1 extends RRecord {
     this.assert(this.purpose === ACCOUNT_DEVICE_CAPABILITY_PURPOSE, "AccountDeviceCapabilityV1.purpose must be " + ACCOUNT_DEVICE_CAPABILITY_PURPOSE, { purpose: this.purpose });
     requireCanonicalSpkiB64(this.accountIdentityPublicKeyB64, "AccountDeviceCapabilityV1.accountIdentityPublicKeyB64");
     this.assert(
-      this.parentCertId === null || (isNonEmptyString(this.parentCertId) && this.parentCertId.startsWith(ACCOUNT_CAPABILITY_CERT_ID_PREFIX)),
-      "AccountDeviceCapabilityV1.parentCertId must be null or a rez:cap: id",
+      this.parentCertId === null || isCanonicalAccountCapabilityCertId(this.parentCertId),
+      "AccountDeviceCapabilityV1.parentCertId must be null or a canonical rez:cap:<64-hex> id",
       { parentCertId: this.parentCertId },
     );
     requireCanonicalSpkiB64(this.granteeDevicePublicKeyB64, "AccountDeviceCapabilityV1.granteeDevicePublicKeyB64");

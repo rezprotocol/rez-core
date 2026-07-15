@@ -11,6 +11,7 @@ export {
   isKnownCapability,
   requireCapabilityList,
   deriveAccountCapabilityCertId,
+  isCanonicalAccountCapabilityCertId,
 } from "./accountCapabilityShared.js";
 export { AccountDeviceCapabilityV1, ACCOUNT_DEVICE_CAPABILITY_VERSION, ACCOUNT_DEVICE_CAPABILITY_PURPOSE } from "./AccountDeviceCapabilityV1.js";
 export { AccountDeviceCapabilityRevokeV1, ACCOUNT_DEVICE_CAPABILITY_REVOKE_VERSION, ACCOUNT_DEVICE_CAPABILITY_REVOKE_PURPOSE } from "./AccountDeviceCapabilityRevokeV1.js";

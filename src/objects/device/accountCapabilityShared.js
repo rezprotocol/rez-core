@@ -64,6 +64,18 @@ export function requireCapabilityList(capabilities, label) {
 
 export const ACCOUNT_CAPABILITY_CERT_ID_PREFIX = "rez:cap:";
 
+// The EXACT canonical account-capability cert-id shape: the `rez:cap:` prefix followed
+// by exactly 64 lowercase hex chars — precisely what deriveAccountCapabilityCertId emits
+// (prefix + sha256Hex). SSOT predicate (audit R4 F3-remediation finding 2): a bare
+// `startsWith("rez:cap:")` accepts arbitrary content like `rez:cap:revoked-leaf`, so the
+// record validators, the home serializer's revoke guard, and any other cert-id check
+// must use THIS to reject a malformed / attacker-chosen id, not a prefix test.
+const ACCOUNT_CAPABILITY_CERT_ID_RE = /^rez:cap:[0-9a-f]{64}$/;
+
+export function isCanonicalAccountCapabilityCertId(certId) {
+  return typeof certId === "string" && ACCOUNT_CAPABILITY_CERT_ID_RE.test(certId);
+}
+
 /**
  * Deterministic cert id over the cert's CORE body (every signed field except
  * `certId` and `sig`). Hashing the canonical JSON of the core body makes the id a

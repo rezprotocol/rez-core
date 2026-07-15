@@ -1,5 +1,4 @@
 import { RRecord } from "../../base/index.js";
-import { isNonEmptyString } from "../../util/strings.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
 import {
   requireCanonicalSpkiB64,
@@ -7,7 +6,7 @@ import {
   normalizeSig,
   validateEd25519Sig,
 } from "./deviceRecordShared.js";
-import { ACCOUNT_CAPABILITY_CERT_ID_PREFIX } from "./accountCapabilityShared.js";
+import { isCanonicalAccountCapabilityCertId } from "./accountCapabilityShared.js";
 
 export const ACCOUNT_AUTHORITY_STATE_VERSION = 1;
 export const ACCOUNT_AUTHORITY_STATE_PURPOSE = "rez:account-authority-state:v1";
@@ -76,8 +75,8 @@ export class AccountAuthorityStateV1 extends RRecord {
     this.assert(Array.isArray(this.revokedCertIds), "AccountAuthorityStateV1.revokedCertIds must be an array", { revokedCertIds: this.revokedCertIds });
     for (const certId of this.revokedCertIds) {
       this.assert(
-        isNonEmptyString(certId) && certId.startsWith(ACCOUNT_CAPABILITY_CERT_ID_PREFIX),
-        "AccountAuthorityStateV1.revokedCertIds entries must be rez:cap: ids",
+        isCanonicalAccountCapabilityCertId(certId),
+        "AccountAuthorityStateV1.revokedCertIds entries must be canonical rez:cap:<64-hex> ids",
         { certId },
       );
     }

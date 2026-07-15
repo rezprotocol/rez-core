@@ -9,7 +9,7 @@ import {
   normalizeSig,
   validateEd25519Sig,
 } from "./deviceRecordShared.js";
-import { ACCOUNT_CAPABILITY_CERT_ID_PREFIX } from "./accountCapabilityShared.js";
+import { isCanonicalAccountCapabilityCertId } from "./accountCapabilityShared.js";
 
 export const ACCOUNT_DEVICE_MUTATION_VERSION = 1;
 export const ACCOUNT_DEVICE_MUTATION_PURPOSE = "rez:account-device-mutation:v1";
@@ -37,8 +37,12 @@ export const ACCOUNT_DEVICE_MUTATION_ACTIONS = Object.freeze(["device.add", "dev
  *   device.add    → { deviceInboxBinding: <DeviceInboxBindingV1 json> }
  *                   (the sibling's device-signed, self-certifying inbox+key proof)
  *   device.revoke → { revokedDeviceId, revokedCertId? }
- *                   (revokedDeviceId self-cert; revokedCertId optional — adds to
- *                    the account revoked-cert set)
+ *                   (revokedDeviceId self-cert. revokedCertId is NOT an arbitrary
+ *                    add to the revoked-cert set: the home auto-revokes the target
+ *                    device's OWN registry-bound cert, and a supplied revokedCertId is
+ *                    only a redundant assertion that must EQUAL that bound cert — a
+ *                    mismatch is rejected. Revoking an unrelated cert is the separate
+ *                    capability.revoke operation, not this device-scoped mutation.)
  *
  * Signed body (everything except `sig`):
  *   { v, purpose, opId, accountIdentityPublicKeyB64, expectedRevision, action,
@@ -131,9 +135,12 @@ export class AccountDeviceMutationV1 extends RRecord {
         { revokedDeviceId: target.revokedDeviceId },
       );
       if (target.revokedCertId !== undefined && target.revokedCertId !== null) {
+        // Audit R4 F3-remediation finding 2: EXACT canonical shape (rez:cap: + 64 lowercase
+        // hex — what deriveAccountCapabilityCertId emits), not a bare prefix that would
+        // accept `rez:cap:revoked-leaf` or any attacker-chosen string.
         this.assert(
-          isNonEmptyString(target.revokedCertId) && String(target.revokedCertId).startsWith(ACCOUNT_CAPABILITY_CERT_ID_PREFIX),
-          "AccountDeviceMutationV1 device.revoke target.revokedCertId must be a rez:cap: id or omitted",
+          isCanonicalAccountCapabilityCertId(target.revokedCertId),
+          "AccountDeviceMutationV1 device.revoke target.revokedCertId must be a canonical rez:cap:<64-hex> id or omitted",
           { revokedCertId: target.revokedCertId },
         );
       }

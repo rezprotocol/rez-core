@@ -120,7 +120,12 @@ test("rejects an unknown action, bad expectedRevision, and malformed targets", (
   // guard) — the forgeable tombstone vector — is now rejected at the record.
   assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "rez:dev:ghost" } }), /must be a canonical rez:dev/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "rez:dev:" + "A".repeat(64) } }), /must be a canonical rez:dev/);
-  assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: deviceId(sibling.publicKeyB64), revokedCertId: "not-a-cap" } }), /must be a rez:cap: id or omitted/);
+  // revokedCertId must be the EXACT canonical rez:cap:<64-hex> shape (F3-remediation
+  // finding 2) — a bare prefix, non-hex, wrong length, or uppercase is rejected.
+  const sib = deviceId(sibling.publicKeyB64);
+  for (const bad of ["not-a-cap", "rez:cap:revoked-leaf", "rez:cap:" + "a".repeat(63), "rez:cap:" + "a".repeat(65), "rez:cap:" + "A".repeat(64), "rez:cap:" + "g".repeat(64)]) {
+    assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: sib, revokedCertId: bad } }), /must be a canonical rez:cap:<64-hex> id or omitted/);
+  }
   assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) }, overrides: { opId: "" } }), /opId must be a non-empty string/);
 });
 
