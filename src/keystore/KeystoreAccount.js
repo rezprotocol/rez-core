@@ -1,4 +1,5 @@
 import { Identity, deriveAccountIdFromPublicKey } from "../identity/index.js";
+import { requireCanonicalInboxId } from "../util/inboxId.js";
 import { DeviceRegistrationV1 } from "../objects/device/DeviceRegistrationV1.js";
 import { AccountDeviceCapabilityV1 } from "../objects/device/AccountDeviceCapabilityV1.js";
 import { DeviceSetRecordV1 } from "../objects/device/DeviceSetRecordV1.js";
@@ -196,10 +197,11 @@ function serializeDelegatedPayload(payload) {
   // P1#2 L3.5: the device-link ceremony pre-registered a SPECIFIC home inbox (the one this
   // device device-signed a binding for + the home's device.add recorded). Persist it so the
   // delegated device claims exactly that inbox on boot, never a freshly-minted one. Optional
-  // (legacy delegated keystores predate it → null); validated to the canonical shape when set.
+  // (legacy delegated keystores predate it → null); validated to the ONE canonical inbox
+  // shape (SSOT: util/inboxId) when set.
   const inboxId = src.inboxId === undefined || src.inboxId === null
     ? null
-    : requireCanonicalKeystoreInboxId(src.inboxId);
+    : requireCanonicalInboxId(src.inboxId, "Delegated keystore inboxId");
 
   return {
     keystoreVersion,
@@ -219,15 +221,6 @@ function serializeDelegatedPayload(payload) {
   };
 }
 
-// Canonical home-inbox shape a delegated keystore may persist ("inbox:" + lowercase hex),
-// matching what the SDK InboxClaimStore / device-link requester mint. Fail loud on anything else.
-function requireCanonicalKeystoreInboxId(inboxId) {
-  const v = typeof inboxId === "string" ? inboxId.trim() : "";
-  if (!/^inbox:[0-9a-f]{16,}$/.test(v)) {
-    throw new Error('Delegated keystore inboxId must be canonical ("inbox:" + lowercase hex), got: ' + String(inboxId));
-  }
-  return v;
-}
 
 // Anti-tamper parse of a decrypted v3 payload — the full validation (including
 // accountId/deviceId re-derivation) lives in serializeDelegatedPayload.

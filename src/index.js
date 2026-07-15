@@ -16,6 +16,7 @@ export { concatBytes } from "./crypto/util/bytes.js";
 export { objectToBytes, bytesToObject } from "./util/jsonBytes.js";
 export * from "./util/base32.js";
 export { isNonEmptyString } from "./util/strings.js";
+export { INBOX_ID_RANDOM_BYTES, INBOX_ID_HEX_LEN, isCanonicalInboxId, requireCanonicalInboxId } from "./util/inboxId.js";
 export { PRICING_UNITS } from "./util/settlement.js";
 export { asInt, nonEmpty, requireId } from "./util/coerce.js";
 export * from "./base/index.js";
