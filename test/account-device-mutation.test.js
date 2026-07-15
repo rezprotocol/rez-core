@@ -6,6 +6,8 @@ import {
   AccountDeviceMutationV1,
   ACCOUNT_DEVICE_MUTATION_PURPOSE,
   DeviceInboxBindingV1,
+  AccountDeviceCapabilityV1,
+  ACCOUNT_DEVICE_CAPABILITY_PURPOSE,
   DeviceRegistrationV1,
 } from "../src/objects/device/index.js";
 import { REZ_CONTRACT_TYPES } from "../src/protocol/index.js";
@@ -47,6 +49,33 @@ function makeBinding(device, inboxId = "rez:inbox:sibling") {
   return new DeviceInboxBindingV1({ ...body, sig }).toJSON();
 }
 
+// The account→device leaf capability cert (C←B) the home stores so a later revoke
+// auto-revokes it (audit R4 completeness). Signed by the account root B.
+function makeCapability({ account, device, capabilities = ["deviceSet.publish"], overrides = {} } = {}) {
+  const fields = {
+    v: 1,
+    purpose: ACCOUNT_DEVICE_CAPABILITY_PURPOSE,
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    parentCertId: null,
+    granteeDevicePublicKeyB64: device.publicKeyB64,
+    granteeDeviceId: deviceId(device.publicKeyB64),
+    capabilities,
+    maxDelegationDepth: 0,
+    issuedAtMs: NOW,
+    expiresAtMs: FAR,
+    signerPublicKeyB64: account.publicKeyB64,
+    ...overrides,
+  };
+  const certId = AccountDeviceCapabilityV1.deriveCertId(fields);
+  const sig = sign(account.privateKey, AccountDeviceCapabilityV1.signableBytes({ ...fields, certId }));
+  return new AccountDeviceCapabilityV1({ ...fields, certId, sig }).toJSON();
+}
+
+// A complete, coherent device.add target: the sibling's inbox binding + its leaf cert.
+function addTarget(account, sibling) {
+  return { deviceInboxBinding: makeBinding(sibling), deviceCapability: makeCapability({ account, device: sibling }) };
+}
+
 function makeMutation({ account, signer, action, target, opId = "op-1", expectedRevision = 0, overrides = {} } = {}) {
   const body = {
     v: 1,
@@ -75,20 +104,21 @@ test("wire types exist for the mutation + authority-state ops", () => {
 test("device.add mutation: constructs, verifies (signer-bound), round-trips", () => {
   const account = genKey();
   const sibling = genKey();
-  const rec = makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) } });
+  const rec = makeMutation({ account, signer: account, action: "device.add", target: addTarget(account, sibling) });
   assert.equal(rec.action, "device.add");
   // The signer (here the primary account key) signs the envelope.
   assert.ok(verify(account.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig));
   const back = AccountDeviceMutationV1.fromJSON(rec.toJSON());
   assert.equal(back.opId, rec.opId);
   assert.equal(back.target.deviceInboxBinding.deviceId, deviceId(sibling.publicKeyB64));
+  assert.equal(back.target.deviceCapability.granteeDeviceId, deviceId(sibling.publicKeyB64), "the leaf cert grants the added device");
 });
 
 test("device.add: a delegated device (C) can sign the envelope", () => {
   const account = genKey();
   const deviceC = genKey();
   const sibling = genKey();
-  const rec = makeMutation({ account, signer: deviceC, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) } });
+  const rec = makeMutation({ account, signer: deviceC, action: "device.add", target: addTarget(account, sibling) });
   assert.equal(rec.signerPublicKeyB64, deviceC.publicKeyB64);
   assert.ok(verify(deviceC.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig), "C's signature verifies");
   assert.ok(!verify(account.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig), "not B's");
@@ -113,8 +143,8 @@ test("rejects an unknown action, bad expectedRevision, and malformed targets", (
   const account = genKey();
   const sibling = genKey();
   assert.throws(() => makeMutation({ account, signer: account, action: "device.rename", target: {} }), /action must be/);
-  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) }, overrides: { expectedRevision: -1 } }), /expectedRevision must be a non-negative integer/);
-  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: {} } }), /device.add target.deviceInboxBinding is invalid/);
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: addTarget(account, sibling), overrides: { expectedRevision: -1 } }), /expectedRevision must be a non-negative integer/);
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: {}, deviceCapability: makeCapability({ account, device: sibling }) } }), /device.add target.deviceInboxBinding is invalid/);
   assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: "not-a-dev-id" } }), /must be a canonical rez:dev/);
   // A merely `rez:dev:`-prefixed but non-canonical id (audit R4 F1 DoS-syntax
   // guard) — the forgeable tombstone vector — is now rejected at the record.
@@ -126,7 +156,29 @@ test("rejects an unknown action, bad expectedRevision, and malformed targets", (
   for (const bad of ["not-a-cap", "rez:cap:revoked-leaf", "rez:cap:" + "a".repeat(63), "rez:cap:" + "a".repeat(65), "rez:cap:" + "A".repeat(64), "rez:cap:" + "g".repeat(64)]) {
     assert.throws(() => makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: sib, revokedCertId: bad } }), /must be a canonical rez:cap:<64-hex> id or omitted/);
   }
-  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) }, overrides: { opId: "" } }), /opId must be a non-empty string/);
+  assert.throws(() => makeMutation({ account, signer: account, action: "device.add", target: addTarget(account, sibling), overrides: { opId: "" } }), /opId must be a non-empty string/);
+});
+
+test("device.add completeness: the leaf capability cert is REQUIRED and bound to the added device + account", () => {
+  const account = genKey();
+  const sibling = genKey();
+  // Missing deviceCapability entirely.
+  assert.throws(
+    () => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling) } }),
+    /device.add target.deviceCapability is invalid/,
+  );
+  // A leaf cert for a DIFFERENT device than the binding.
+  const other = genKey();
+  assert.throws(
+    () => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling), deviceCapability: makeCapability({ account, device: other }) } }),
+    /granteeDeviceId must equal the binding deviceId/,
+  );
+  // A leaf cert anchored to a DIFFERENT account than the mutation.
+  const otherAccount = genKey();
+  assert.throws(
+    () => makeMutation({ account, signer: account, action: "device.add", target: { deviceInboxBinding: makeBinding(sibling), deviceCapability: makeCapability({ account: otherAccount, device: sibling }) } }),
+    /must anchor to the mutation's account/,
+  );
 });
 
 test("the signed body binds the target: tampering the target breaks the signature", () => {

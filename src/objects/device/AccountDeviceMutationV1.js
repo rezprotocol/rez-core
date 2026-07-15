@@ -2,6 +2,7 @@ import { RRecord } from "../../base/index.js";
 import { isNonEmptyString } from "../../util/strings.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
 import { DeviceInboxBindingV1 } from "./DeviceInboxBindingV1.js";
+import { AccountDeviceCapabilityV1 } from "./AccountDeviceCapabilityV1.js";
 import { isCanonicalDeviceId } from "./DeviceRegistrationV1.js";
 import {
   requireCanonicalSpkiB64,
@@ -34,8 +35,17 @@ export const ACCOUNT_DEVICE_MUTATION_ACTIONS = Object.freeze(["device.add", "dev
  * clobber).
  *
  * `target` is action-tagged:
- *   device.add    → { deviceInboxBinding: <DeviceInboxBindingV1 json> }
- *                   (the sibling's device-signed, self-certifying inbox+key proof)
+ *   device.add    → { deviceInboxBinding: <DeviceInboxBindingV1 json>,
+ *                     deviceCapability: <AccountDeviceCapabilityV1 json> }
+ *                   (the sibling's device-signed, self-certifying inbox+key proof,
+ *                    PLUS the account→device leaf capability cert C←B that grants
+ *                    the device its authority. The home stores the leaf's certId on
+ *                    the registry row so a later device.revoke auto-revokes it into
+ *                    the account's revoked-cert set — the ONLY revocation signal
+ *                    off-home peers get. Without it a revoked device's leaf cert
+ *                    would stay valid to peers (audit R4 completeness blocker). The
+ *                    cert is structurally bound here to the same device + account;
+ *                    its signature is verified by the home via verifyAccountAuthority.)
  *   device.revoke → { revokedDeviceId, revokedCertId? }
  *                   (revokedDeviceId self-cert. revokedCertId is NOT an arbitrary
  *                    add to the revoked-cert set: the home auto-revokes the target
@@ -116,6 +126,29 @@ export class AccountDeviceMutationV1 extends RRecord {
       }
       // Keep the constructed record from being GC-flagged as unused.
       this.assert(isNonEmptyString(binding.deviceId), "AccountDeviceMutationV1 device.add binding must carry a deviceId", { deviceId: binding.deviceId });
+
+      // Audit R4 completeness: device.add MUST carry the device's leaf capability cert
+      // (C←B) so the home can store its certId and later auto-revoke it. Structurally
+      // validate it and bind it to THIS device + account (the leaf must grant authority
+      // to the very device being added, anchored to the mutation's account). The
+      // signature + chain are verified by the home (verifyAccountAuthority) — this is
+      // the structural coherence gate.
+      let capability;
+      try {
+        capability = new AccountDeviceCapabilityV1(target.deviceCapability && typeof target.deviceCapability === "object" ? target.deviceCapability : {});
+      } catch (err) {
+        this.assert(false, "AccountDeviceMutationV1 device.add target.deviceCapability is invalid: " + (err && err.message ? err.message : "unknown"), { target });
+      }
+      this.assert(
+        capability.granteeDeviceId === binding.deviceId,
+        "AccountDeviceMutationV1 device.add deviceCapability.granteeDeviceId must equal the binding deviceId (the leaf must grant the device being added)",
+        { granteeDeviceId: capability.granteeDeviceId, bindingDeviceId: binding.deviceId },
+      );
+      this.assert(
+        capability.accountIdentityPublicKeyB64 === this.accountIdentityPublicKeyB64,
+        "AccountDeviceMutationV1 device.add deviceCapability must anchor to the mutation's account",
+        { certAccount: capability.accountIdentityPublicKeyB64, mutationAccount: this.accountIdentityPublicKeyB64 },
+      );
     } else {
       // device.revoke: a self-cert deviceId, and an optional revoked cert id. The
       // deviceId must have CANONICAL SYNTAX (`rez:dev:<64-lowercase-hex>`), not merely
