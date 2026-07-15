@@ -2,6 +2,7 @@ import { RRecord } from "../../base/index.js";
 import { isNonEmptyString } from "../../util/strings.js";
 import { canonicalJSONStringify } from "../../util/canonicalize.js";
 import { DeviceRegistrationV1 } from "./DeviceRegistrationV1.js";
+import { DeviceInboxBindingV1 } from "./DeviceInboxBindingV1.js";
 import {
   requireCanonicalSpkiB64,
   requireCanonicalB64,
@@ -26,9 +27,19 @@ export const DEVICE_LINK_REQUEST_PURPOSE = "rez:device-link-request:v1";
  * device and the authorizer; carrying it in the signed body binds this request to
  * one specific ceremony so a captured request cannot be replayed into another.
  *
+ * `deviceInboxBinding` (P1#2 registration-before-release) is the new device's OWN
+ * device-signed DeviceInboxBindingV1 for a self-chosen inbox. It rides in the signed
+ * request so the approver can submit `device.add {deviceInboxBinding, deviceCapability}`
+ * to the home — binding the leaf cert's certId at the home BEFORE the leaf is released
+ * to the new device. Without it the approver would have no device-signed inbox proof to
+ * register (a device.add target requires one), leaving a window where the cert is usable
+ * but not yet revocable to off-home peers. The binding grants NOTHING on its own; it is a
+ * self-cert of "this device receives at this inbox". Bound here to THIS request's device
+ * (same deviceId + key); the account-signed leaf cert is minted by the approver.
+ *
  * Signed body (everything except `sig`):
  *   { v, purpose, accountIdentityPublicKeyB64, newDevicePublicKeyB64,
- *     newDeviceId, ceremonyNonceB64, issuedAtMs, expiresAtMs }
+ *     newDeviceId, deviceInboxBinding, ceremonyNonceB64, issuedAtMs, expiresAtMs }
  * `newDeviceId` is self-certifying from `newDevicePublicKeyB64`. sig = Ed25519
  * over canonicalJSONStringify(body) by the NEW device key.
  */
@@ -41,6 +52,7 @@ export class DeviceLinkRequestV1 extends RRecord {
     accountIdentityPublicKeyB64,
     newDevicePublicKeyB64,
     newDeviceId,
+    deviceInboxBinding,
     ceremonyNonceB64,
     issuedAtMs,
     expiresAtMs,
@@ -52,6 +64,7 @@ export class DeviceLinkRequestV1 extends RRecord {
     this.accountIdentityPublicKeyB64 = accountIdentityPublicKeyB64;
     this.newDevicePublicKeyB64 = newDevicePublicKeyB64;
     this.newDeviceId = newDeviceId;
+    this.deviceInboxBinding = deviceInboxBinding;
     this.ceremonyNonceB64 = ceremonyNonceB64;
     this.issuedAtMs = issuedAtMs;
     this.expiresAtMs = expiresAtMs;
@@ -67,6 +80,19 @@ export class DeviceLinkRequestV1 extends RRecord {
     this.assert(isNonEmptyString(this.newDeviceId), "DeviceLinkRequestV1.newDeviceId must be non-empty string", { newDeviceId: this.newDeviceId });
     const expectedDeviceId = DeviceRegistrationV1.deviceIdFor(this.newDevicePublicKeyB64);
     this.assert(this.newDeviceId === expectedDeviceId, "DeviceLinkRequestV1.newDeviceId must equal rez:dev:sha256(newDevicePublicKeyB64)", { newDeviceId: this.newDeviceId, expectedDeviceId });
+    // P1#2: the self-chosen, device-signed inbox binding the approver registers via device.add.
+    // Structurally validated by constructing it (self-cert deviceId + SPKI + device sig envelope),
+    // then bound to THIS request's device — the binding must be for the very device being linked,
+    // never a substituted device/key. Its own device-signature is verified where it is consumed
+    // (openCeremonyRequest verifies the enclosing request; the home re-verifies at device.add).
+    let binding;
+    try {
+      binding = new DeviceInboxBindingV1(this.deviceInboxBinding && typeof this.deviceInboxBinding === "object" ? this.deviceInboxBinding : {});
+    } catch (err) {
+      this.assert(false, "DeviceLinkRequestV1.deviceInboxBinding is invalid: " + (err && err.message ? err.message : "unknown"), { deviceInboxBinding: this.deviceInboxBinding });
+    }
+    this.assert(binding.deviceId === this.newDeviceId, "DeviceLinkRequestV1.deviceInboxBinding.deviceId must equal newDeviceId (the binding must be for the device being linked)", { bindingDeviceId: binding.deviceId, newDeviceId: this.newDeviceId });
+    this.assert(binding.devicePublicKeyB64 === this.newDevicePublicKeyB64, "DeviceLinkRequestV1.deviceInboxBinding.devicePublicKeyB64 must equal newDevicePublicKeyB64", { bindingKey: binding.devicePublicKeyB64, newDevicePublicKeyB64: this.newDevicePublicKeyB64 });
     // 256-bit pin (S10): the nonce is the PSK-derived ceremony binding — a
     // shorter value would weaken the replay binding it exists to provide.
     requireCanonicalB64(this.ceremonyNonceB64, "DeviceLinkRequestV1.ceremonyNonceB64", { length: 32 });
@@ -80,8 +106,8 @@ export class DeviceLinkRequestV1 extends RRecord {
    * The exact bytes the new device key signs and every verifier recomputes — the
    * signed body minus `sig`. Deterministic via canonical JSON.
    */
-  static signableBytes({ v, purpose, accountIdentityPublicKeyB64, newDevicePublicKeyB64, newDeviceId, ceremonyNonceB64, issuedAtMs, expiresAtMs } = {}) {
-    const body = { v, purpose, accountIdentityPublicKeyB64, newDevicePublicKeyB64, newDeviceId, ceremonyNonceB64, issuedAtMs, expiresAtMs };
+  static signableBytes({ v, purpose, accountIdentityPublicKeyB64, newDevicePublicKeyB64, newDeviceId, deviceInboxBinding, ceremonyNonceB64, issuedAtMs, expiresAtMs } = {}) {
+    const body = { v, purpose, accountIdentityPublicKeyB64, newDevicePublicKeyB64, newDeviceId, deviceInboxBinding, ceremonyNonceB64, issuedAtMs, expiresAtMs };
     return new TextEncoder().encode(canonicalJSONStringify(body));
   }
 }

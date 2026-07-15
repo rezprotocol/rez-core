@@ -21,7 +21,12 @@ import {
   sealCeremonyRecord,
   verifyCeremonyRecord,
 } from "../src/protocol/deviceLinkV1.js";
-import { bytesToBase64 } from "../src/util/bytes.js";
+import { bytesToBase64, base64ToBytes } from "../src/util/bytes.js";
+import {
+  DeviceInboxBindingV1,
+  DEVICE_INBOX_BINDING_PURPOSE,
+  DeviceRegistrationV1,
+} from "../src/objects/device/index.js";
 import { NodeRealCryptoProvider } from "./support/NodeRealCryptoProvider.js";
 
 // S2.5 S10 P2 — the PSK device-link ceremony (audit F8), pure-function layer,
@@ -68,6 +73,19 @@ function makeCeremony() {
   };
 }
 
+// P1#2: the new device's own device-signed inbox binding, now carried in the ceremony
+// request so the approver can register it (device.add) before releasing the leaf cert.
+async function mkInboxBinding(c, inboxId = "inbox:link-test") {
+  const deviceId = DeviceRegistrationV1.deviceIdFor(c.deviceKeyPair.publicKeyB64);
+  const body = {
+    v: 1, purpose: DEVICE_INBOX_BINDING_PURPOSE,
+    devicePublicKeyB64: c.deviceKeyPair.publicKeyB64, deviceId, inboxId,
+    issuedAtMs: NOW - 1000, expiresAtMs: NOW + 3_600_000,
+  };
+  const sigBytes = await CRYPTO.sign({ privateKey: base64ToBytes(c.deviceKeyPair.privateKeyB64), msg: DeviceInboxBindingV1.signableBytes(body) });
+  return new DeviceInboxBindingV1({ ...body, sig: { alg: "ed25519", sigB64: bytesToBase64(sigBytes) } }).toJSON();
+}
+
 async function runRequest(c) {
   return buildCeremonyRequest({
     crypto: CRYPTO,
@@ -76,6 +94,7 @@ async function runRequest(c) {
     accountSignPublicKeyB64: c.accountSignPublicKeyB64,
     rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
     deviceKeyPair: c.deviceKeyPair,
+    deviceInboxBinding: await mkInboxBinding(c),
   });
 }
 
@@ -207,6 +226,7 @@ test("request rejections: wrong psk, tamper, wrong account, cross-ceremony nonce
     accountSignPublicKeyB64: c.accountSignPublicKeyB64,
     rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
     deviceKeyPair: c.deviceKeyPair,
+    deviceInboxBinding: await mkInboxBinding(c),
     requestTtlMs: 60_000,
   });
   await assert.rejects(() => runOpenRequest(c, expired.payload), /expired/);
@@ -217,19 +237,67 @@ test("request rejections: wrong psk, tamper, wrong account, cross-ceremony nonce
     accountSignPublicKeyB64: c.accountSignPublicKeyB64,
     rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
     deviceKeyPair: c.deviceKeyPair,
+    deviceInboxBinding: await mkInboxBinding(c),
   });
   await assert.rejects(() => runOpenRequest(c, future.payload), /future/);
 
   // An Ed25519 key masquerading as the ephemeral X25519 point is rejected at
   // build time (the X25519 SPKI pin).
   const edAsDh = CRYPTO.generateSigningKeyPair();
+  const edAsDhBinding = await mkInboxBinding(c);
   await assert.rejects(() => buildCeremonyRequest({
     crypto: CRYPTO, nowMs: NOW, psk: c.psk,
     accountSignPublicKeyB64: c.accountSignPublicKeyB64,
     rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
     deviceKeyPair: c.deviceKeyPair,
+    deviceInboxBinding: edAsDhBinding,
     ephemeralKeyPair: edAsDh,
   }), /X25519 SPKI/);
+});
+
+// ---- P1#2: registration-before-release inbox binding in the request ----
+
+test("P1#2: the request carries the device-signed inbox binding; it round-trips to the approver", async () => {
+  const c = makeCeremony();
+  const req = await buildCeremonyRequest({
+    crypto: CRYPTO, nowMs: NOW, psk: c.psk,
+    accountSignPublicKeyB64: c.accountSignPublicKeyB64,
+    rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
+    deviceKeyPair: c.deviceKeyPair,
+    deviceInboxBinding: await mkInboxBinding(c, "inbox:link-abc"),
+  });
+  // The opener surfaces the binding on the linkRequest so the approver can device.add it.
+  const opened = await runOpenRequest(c, req.payload);
+  assert.equal(opened.linkRequest.deviceInboxBinding.inboxId, "inbox:link-abc");
+  assert.equal(opened.linkRequest.deviceInboxBinding.deviceId, opened.linkRequest.newDeviceId, "the binding is for the device being linked");
+  assert.equal(opened.linkRequest.deviceInboxBinding.devicePublicKeyB64, opened.linkRequest.newDevicePublicKeyB64);
+});
+
+test("P1#2: a binding for a DIFFERENT device, or a missing binding, is rejected", async () => {
+  const c = makeCeremony();
+  // A binding minted by a different device key does not match newDeviceId → rejected at the record.
+  const other = makeCeremony();
+  const foreignBinding = await mkInboxBinding(other);
+  await assert.rejects(
+    () => buildCeremonyRequest({
+      crypto: CRYPTO, nowMs: NOW, psk: c.psk,
+      accountSignPublicKeyB64: c.accountSignPublicKeyB64,
+      rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
+      deviceKeyPair: c.deviceKeyPair,
+      deviceInboxBinding: foreignBinding,
+    }),
+    /must equal newDeviceId/,
+  );
+  // A missing binding is a hard build error (device.add would have nothing to register).
+  await assert.rejects(
+    () => buildCeremonyRequest({
+      crypto: CRYPTO, nowMs: NOW, psk: c.psk,
+      accountSignPublicKeyB64: c.accountSignPublicKeyB64,
+      rendezvousPublicKeyB64: c.rendezvousPublicKeyB64,
+      deviceKeyPair: c.deviceKeyPair,
+    }),
+    /requires deviceInboxBinding/,
+  );
 });
 
 // ---- response rejections ----

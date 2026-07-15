@@ -263,6 +263,7 @@ export async function buildCeremonyRequest({
   accountSignPublicKeyB64,
   rendezvousPublicKeyB64,
   deviceKeyPair,
+  deviceInboxBinding,
   ephemeralKeyPair = null,
   requestTtlMs = 10 * 60_000,
 } = {}) {
@@ -273,6 +274,11 @@ export async function buildCeremonyRequest({
   requireCanonicalSpkiB64(rendezvousPublicKeyB64, "buildCeremonyRequest.rendezvousPublicKeyB64");
   if (!deviceKeyPair || !deviceKeyPair.publicKeyB64 || !deviceKeyPair.privateKeyB64) {
     throw new Error("buildCeremonyRequest requires deviceKeyPair with publicKeyB64 and privateKeyB64 (the new device key C)");
+  }
+  // P1#2: the new device's self-chosen, device-signed inbox binding, carried in the signed
+  // request so the approver can register it (device.add) before releasing the leaf cert.
+  if (!deviceInboxBinding || typeof deviceInboxBinding !== "object") {
+    throw new Error("buildCeremonyRequest requires deviceInboxBinding (the new device's device-signed DeviceInboxBindingV1 for its self-chosen inbox)");
   }
 
   const secrets = await deriveCeremonySecrets({ crypto, psk });
@@ -287,6 +293,7 @@ export async function buildCeremonyRequest({
     accountIdentityPublicKeyB64: accountSignPublicKeyB64,
     newDevicePublicKeyB64: deviceKeyPair.publicKeyB64,
     newDeviceId,
+    deviceInboxBinding,
     ceremonyNonceB64: secrets.ceremonyNonceB64,
     issuedAtMs: nowMs,
     expiresAtMs: nowMs + requestTtlMs,
