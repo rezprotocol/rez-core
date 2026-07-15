@@ -193,6 +193,14 @@ function serializeDelegatedPayload(payload) {
     signPublicKeyB64,
   );
 
+  // P1#2 L3.5: the device-link ceremony pre-registered a SPECIFIC home inbox (the one this
+  // device device-signed a binding for + the home's device.add recorded). Persist it so the
+  // delegated device claims exactly that inbox on boot, never a freshly-minted one. Optional
+  // (legacy delegated keystores predate it → null); validated to the canonical shape when set.
+  const inboxId = src.inboxId === undefined || src.inboxId === null
+    ? null
+    : requireCanonicalKeystoreInboxId(src.inboxId);
+
   return {
     keystoreVersion,
     createdAtMs,
@@ -206,8 +214,19 @@ function serializeDelegatedPayload(payload) {
     deviceKey,
     certChain,
     cachedDeviceSet,
+    inboxId,
     profileName: normalizeProfileName(src.profileName),
   };
+}
+
+// Canonical home-inbox shape a delegated keystore may persist ("inbox:" + lowercase hex),
+// matching what the SDK InboxClaimStore / device-link requester mint. Fail loud on anything else.
+function requireCanonicalKeystoreInboxId(inboxId) {
+  const v = typeof inboxId === "string" ? inboxId.trim() : "";
+  if (!/^inbox:[0-9a-f]{16,}$/.test(v)) {
+    throw new Error('Delegated keystore inboxId must be canonical ("inbox:" + lowercase hex), got: ' + String(inboxId));
+  }
+  return v;
 }
 
 // Anti-tamper parse of a decrypted v3 payload — the full validation (including
@@ -537,6 +556,8 @@ export async function createDelegatedKeystoreAccount({
     deviceKey,
     certChain: delegation.certChain,
     cachedDeviceSet: delegation.cachedDeviceSet === undefined ? null : delegation.cachedDeviceSet,
+    // P1#2 L3.5: the ceremony's pre-registered home inbox (optional; validated in serialize).
+    inboxId: delegation.inboxId === undefined ? null : delegation.inboxId,
     profileName,
   });
 
@@ -601,6 +622,9 @@ export async function unlockKeystoreAccount({
       },
       certChain: delegated.certChain,
       cachedDeviceSet: delegated.cachedDeviceSet,
+      // P1#2 L3.5: the ceremony's pre-registered home inbox (null for legacy delegated
+      // keystores) — the delegated device claims exactly this inbox on boot.
+      inboxId: delegated.inboxId,
       profileName: delegated.profileName,
       keystoreMeta: {
         version: envelope.version,

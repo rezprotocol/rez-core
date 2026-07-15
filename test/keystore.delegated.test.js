@@ -223,6 +223,29 @@ test("create + unlock round-trip: seedless payload, C accepted not minted, all d
   assert.equal(stored.mnemonic, undefined);
 });
 
+test("P1#2 L3.5: the delegated keystore persists + surfaces the ceremony inbox; legacy → null; noncanonical rejected", async () => {
+  const inboxId = "inbox:" + "b".repeat(24);
+  const withInbox = makeDelegation();
+  const store = makeStore("inbox-persist");
+  await createDelegated(store, { ...withInbox.delegation, inboxId });
+  const unlocked = await unlockKeystoreAccount({ password: "pw", keystoreStore: store, cryptoProvider: CRYPTO });
+  assert.equal(unlocked.inboxId, inboxId, "the ceremony inbox round-trips through the sealed keystore");
+
+  // A legacy delegated keystore (no inboxId) surfaces null — backward compatible.
+  const legacy = makeDelegation();
+  const store2 = makeStore("inbox-legacy");
+  await createDelegated(store2, legacy.delegation);
+  const unlocked2 = await unlockKeystoreAccount({ password: "pw", keystoreStore: store2, cryptoProvider: CRYPTO });
+  assert.equal(unlocked2.inboxId, null, "a delegated keystore without an inbox surfaces null");
+
+  // A noncanonical inbox is rejected at create (fail loud).
+  const bad = makeDelegation();
+  await assert.rejects(
+    () => createDelegated(makeStore("inbox-bad"), { ...bad.delegation, inboxId: "not-an-inbox" }),
+    /canonical/,
+  );
+});
+
 test("the persisted chain is usable end-to-end: verifyAccountAuthority accepts it in delegated mode", async () => {
   const store = makeStore("authz");
   const { B, delegation } = makeDelegation();
