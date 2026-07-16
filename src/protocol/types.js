@@ -65,6 +65,25 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   ACCOUNT_DEVICE_SET_GET: "account.deviceSet.get",
   ACCOUNT_DEVICE_SET_GET_RES: "account.deviceSet.get.res",
 
+  // --- authority-state propagation outbox: the head-advancing account lease (P1#3) ---
+  // The home owns a durable queue of "publish the current AccountAuthorityStateV1"
+  // obligations (enqueued atomically with each device add/revoke fold). Because the
+  // home cannot SIGN that record, a device drains it: claim the account's publishable
+  // head under a server lease, prepare (freeze) the epoch to publish, then either report
+  // failure or (leaf 3c) submit the signed record for a VERIFIED ack. Authority is the
+  // AUTHENTICATED session's own account (never the body); the lease owner is the session
+  // DEVICE; a delegated device needs the deviceSet.publish capability. The lease token is
+  // server-minted and must never appear in logs. These four ops are crypto-FREE (the
+  // signature-verifying completion/ack is the separate leaf-3c op).
+  ACCOUNT_OUTBOX_LEASE_CLAIM: "account.outbox.lease.claim",
+  ACCOUNT_OUTBOX_LEASE_CLAIM_RES: "account.outbox.lease.claim.res",
+  ACCOUNT_OUTBOX_LEASE_PREPARE: "account.outbox.lease.prepare",
+  ACCOUNT_OUTBOX_LEASE_PREPARE_RES: "account.outbox.lease.prepare.res",
+  ACCOUNT_OUTBOX_LEASE_RELEASE: "account.outbox.lease.release",
+  ACCOUNT_OUTBOX_LEASE_RELEASE_RES: "account.outbox.lease.release.res",
+  ACCOUNT_OUTBOX_LEASE_FAIL: "account.outbox.lease.fail",
+  ACCOUNT_OUTBOX_LEASE_FAIL_RES: "account.outbox.lease.fail.res",
+
   // --- channel operations (5, stub) ---
   CHANNEL_OPEN: "channel.open",
   CHANNEL_OPEN_RES: "channel.open.res",
