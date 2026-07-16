@@ -24,9 +24,15 @@ import { canonicalJSONStringify } from "../../util/canonicalize.js";
 // `device.revoke`, deliberately NOT covered by `deviceSet.publish` (which is a
 // propagation authority). Appending is additive: existing certs are unaffected
 // (they hash their own carried arrays), and direct-mode (B-sign) grants expand.
+// A NAMED handle for the propagation-publish capability. Consumers (e.g. the node's
+// PropagationOutboxHandler) MUST import this rather than copy the string literal, so the
+// authorization vocabulary has a single owner and cannot drift. The vocabulary array below
+// references it, so the constant IS the SSOT (a rename here can never desync the two).
+export const CAP_DEVICE_SET_PUBLISH = "deviceSet.publish";
+
 export const ACCOUNT_CAPABILITY_ACTIONS = Object.freeze([
   "peerLink.create",
-  "deviceSet.publish",
+  CAP_DEVICE_SET_PUBLISH,
   "device.add",
   "device.revoke",
   "capability.delegate",

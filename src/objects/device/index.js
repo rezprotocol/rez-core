@@ -6,6 +6,7 @@ export { DeviceLinkRequestV1, DEVICE_LINK_REQUEST_VERSION, DEVICE_LINK_REQUEST_P
 export { DevicePrekeyBundleV1, DEVICE_PREKEY_BUNDLE_VERSION, DEVICE_PREKEY_BUNDLE_PURPOSE } from "./DevicePrekeyBundleV1.js";
 export {
   ACCOUNT_CAPABILITY_ACTIONS,
+  CAP_DEVICE_SET_PUBLISH,
   ACCOUNT_CAPABILITY_CERT_ID_PREFIX,
   isKnownCapability,
   requireCapabilityList,
