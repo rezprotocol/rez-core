@@ -73,8 +73,9 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   // failure or (leaf 3c) submit the signed record for a VERIFIED ack. Authority is the
   // AUTHENTICATED session's own account (never the body); the lease owner is the session
   // DEVICE; a delegated device needs the deviceSet.publish capability. The lease token is
-  // server-minted and must never appear in logs. These four ops are crypto-FREE (the
-  // signature-verifying completion/ack is the separate leaf-3c op).
+  // server-minted and must never appear in logs. Claim/prepare/release/fail are crypto-FREE;
+  // COMPLETE (leaf 3c) is the ONLY crypto-bearing op — it verifies the signed
+  // AccountAuthorityStateV1 publication, stores it, and marks the drained obligations 'done'.
   ACCOUNT_OUTBOX_LEASE_CLAIM: "account.outbox.lease.claim",
   ACCOUNT_OUTBOX_LEASE_CLAIM_RES: "account.outbox.lease.claim.res",
   ACCOUNT_OUTBOX_LEASE_PREPARE: "account.outbox.lease.prepare",
@@ -83,6 +84,10 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   ACCOUNT_OUTBOX_LEASE_RELEASE_RES: "account.outbox.lease.release.res",
   ACCOUNT_OUTBOX_LEASE_FAIL: "account.outbox.lease.fail",
   ACCOUNT_OUTBOX_LEASE_FAIL_RES: "account.outbox.lease.fail.res",
+  // leaf 3c — the VERIFIED completion (ack): submit the signed publication for epoch M,
+  // which the node verifies + stores before marking every obligation <= M 'done'.
+  ACCOUNT_OUTBOX_LEASE_COMPLETE: "account.outbox.lease.complete",
+  ACCOUNT_OUTBOX_LEASE_COMPLETE_RES: "account.outbox.lease.complete.res",
 
   // --- channel operations (5, stub) ---
   CHANNEL_OPEN: "channel.open",

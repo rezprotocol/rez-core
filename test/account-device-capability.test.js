@@ -347,3 +347,63 @@ test("AccountDeviceCapabilityRevokeV1 validates structurally and round-trips its
   // F3-remediation finding 2: a bare rez:cap: prefix is rejected (must be 64 lowercase hex).
   assert.throws(() => new AccountDeviceCapabilityRevokeV1({ ...body, revokedCertId: "rez:cap:revoked-leaf", sig: { alg: "ed25519", sigB64 } }), /revokedCertId must be a canonical rez:cap/);
 });
+
+// ── Chain expiry deadline (leaf-3c review-2 F1) ───────────────────────────────
+// A verified chain does not stay valid forever. A caller that RETAINS one (GatewaySession keeps the
+// chain for the life of a socket) needs the instant it lapses so it can re-check against the clock
+// without re-running the whole verification. The chain is valid only while EVERY cert is inside its
+// window, so that instant is the EARLIEST expiry across the chain — never simply the leaf's.
+test("leaf-3c F1: a verified delegated chain reports chainExpiresAtMs (single leaf ⇒ the leaf's expiry)", async () => {
+  const leaf = buildCert({ account: B.publicKeyB64, signer: B, granteePub: C.publicKeyB64, capabilities: ["deviceSet.publish"], maxDelegationDepth: 0, expiresAtMs: NOW + 500 });
+  const r = await verifyAccountAuthority({
+    expectedAccountIdentityPublicKeyB64: B.publicKeyB64,
+    requiredCapability: "deviceSet.publish",
+    opSignerPublicKeyB64: C.publicKeyB64,
+    certChain: [leaf], crypto: verifier, nowMs: NOW,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.chainExpiresAtMs, NOW + 500);
+});
+
+test("leaf-3c F1: on a depth-1 chain the deadline is the short-lived CHILD's expiry", async () => {
+  const root = buildCert({ account: B.publicKeyB64, signer: B, granteePub: C.publicKeyB64, capabilities: ["deviceSet.publish", "capability.delegate"], maxDelegationDepth: 1, expiresAtMs: NOW + 900_000 });
+  const child = buildCert({ account: B.publicKeyB64, signer: C, parentCertId: root.certId, granteePub: C2.publicKeyB64, capabilities: ["deviceSet.publish"], maxDelegationDepth: 0, expiresAtMs: NOW + 100 });
+  const r = await verifyAccountAuthority({
+    expectedAccountIdentityPublicKeyB64: B.publicKeyB64,
+    requiredCapability: "deviceSet.publish",
+    opSignerPublicKeyB64: C2.publicKeyB64,
+    certChain: [root, child], crypto: verifier, nowMs: NOW,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.chainExpiresAtMs, NOW + 100, "the chain dies with whichever cert lapses first");
+});
+
+// Why the deadline is computed as a MIN rather than simply read off the leaf: expiry is already
+// monotonically non-increasing down a VALID chain (a child may not outlive the parent that granted
+// it — the pin below), so for anything that verifies, min === the leaf's expiry. Taking the min
+// anyway keeps the deadline correct on its own terms instead of silently depending on that separate
+// rule holding forever; if the nesting rule ever loosened, the deadline would still be sound.
+test("leaf-3c F1: a child cert may not outlive its parent (why min === the leaf's expiry)", async () => {
+  const root = buildCert({ account: B.publicKeyB64, signer: B, granteePub: C.publicKeyB64, capabilities: ["deviceSet.publish", "capability.delegate"], maxDelegationDepth: 1, expiresAtMs: NOW + 100 });
+  const child = buildCert({ account: B.publicKeyB64, signer: C, parentCertId: root.certId, granteePub: C2.publicKeyB64, capabilities: ["deviceSet.publish"], maxDelegationDepth: 0, expiresAtMs: NOW + 900_000 });
+  const r = await verifyAccountAuthority({
+    expectedAccountIdentityPublicKeyB64: B.publicKeyB64,
+    requiredCapability: "deviceSet.publish",
+    opSignerPublicKeyB64: C2.publicKeyB64,
+    certChain: [root, child], crypto: verifier, nowMs: NOW,
+  });
+  assert.equal(r.ok, false, "a short-lived delegation cannot be laundered into a long-lived one");
+  assert.match(r.reason, /outlives its parent/);
+});
+
+test("leaf-3c F1: direct (account-root) mode has no cert and therefore no expiry", async () => {
+  const r = await verifyAccountAuthority({
+    expectedAccountIdentityPublicKeyB64: B.publicKeyB64,
+    requiredCapability: "deviceSet.publish",
+    opSignerPublicKeyB64: B.publicKeyB64,
+    certChain: null, crypto: verifier, nowMs: NOW,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.mode, "direct");
+  assert.equal(r.chainExpiresAtMs, null);
+});

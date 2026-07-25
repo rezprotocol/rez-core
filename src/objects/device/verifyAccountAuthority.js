@@ -35,7 +35,9 @@ import { ACCOUNT_CAPABILITY_ACTIONS, isKnownCapability } from "./accountCapabili
  * @param {{ verify(args:{publicKey:Uint8Array,msg:Uint8Array,sig:Uint8Array}):Promise<boolean> }} opts.crypto
  * @param {number} opts.nowMs — REQUIRED finite epoch ms
  * @param {{ revokedCertIds?:(string[]|Set<string>), minValidIssuedAtMs?:number }|null} [opts.revocationState]
- * @returns {Promise<{ok:boolean, mode?:"direct"|"delegated", accountIdentityPublicKeyB64?:string, grantedCapabilities?:string[], leafCertId?:string, reason?:string, failedAt?:number}>}
+ * @returns {Promise<{ok:boolean, mode?:"direct"|"delegated", accountIdentityPublicKeyB64?:string, grantedCapabilities?:string[], leafCertId?:string, chainExpiresAtMs?:number|null, reason?:string, failedAt?:number}>}
+ *   `chainExpiresAtMs` is the EARLIEST expiry across the verified chain (null in direct mode, which
+ *   never expires). A caller retaining the chain past this call MUST re-check it against the clock.
  */
 export async function verifyAccountAuthority({
   expectedAccountIdentityPublicKeyB64,
@@ -72,6 +74,8 @@ export async function verifyAccountAuthority({
         mode: "direct",
         accountIdentityPublicKeyB64: expectedAccountIdentityPublicKeyB64,
         grantedCapabilities: [...ACCOUNT_CAPABILITY_ACTIONS],
+        // The account root holds authority by BEING the account — no cert, so no expiry.
+        chainExpiresAtMs: null,
       };
     }
     return { ok: false, reason: "no cert chain and op signer is not the account root (direct mode requires B-sign)" };
@@ -112,6 +116,12 @@ export async function verifyAccountAuthority({
     recs.push(rec);
   }
 
+  // The EARLIEST expiry across the chain — the instant this authority lapses (leaf-3c review-2 F1).
+  // A chain is valid only while EVERY cert is inside its window, so the chain dies with its first
+  // cert. Accumulated here, inside the loop that already time-checks each cert, so it can never
+  // disagree with the expiry rule below. Returned to callers that must re-check a PREVIOUSLY verified
+  // chain against the clock without re-running the whole verification.
+  let chainExpiresAtMs = null;
   const seenCertIds = new Set();
   for (let i = 0; i < recs.length; i++) {
     const rec = recs[i];
@@ -142,6 +152,9 @@ export async function verifyAccountAuthority({
     }
     if (nowMs >= rec.expiresAtMs) {
       return { ok: false, reason: "cert expired", failedAt: i };
+    }
+    if (chainExpiresAtMs === null || rec.expiresAtMs < chainExpiresAtMs) {
+      chainExpiresAtMs = rec.expiresAtMs;
     }
 
     // Signature over the canonical signed body, by the cert's own signer key.
@@ -215,5 +228,9 @@ export async function verifyAccountAuthority({
     accountIdentityPublicKeyB64: expectedAccountIdentityPublicKeyB64,
     grantedCapabilities: [...leaf.capabilities],
     leafCertId: leaf.certId,
+    // The instant this chain lapses (earliest expiry across it). A caller that RETAINS a verified
+    // chain for later reuse must re-check this against the clock — a chain verified at admission
+    // does not stay valid forever (leaf-3c review-2 F1).
+    chainExpiresAtMs,
   };
 }
