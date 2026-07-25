@@ -495,7 +495,14 @@ export async function buildCeremonyResponse({
   if (sealed.payloadB64.length > DEVICE_LINK_MAX_PAYLOAD_B64) {
     throw new Error("buildCeremonyResponse: sealed bundle exceeds the durable-record payload budget");
   }
-  return { ...sealed, masterSecret };
+  // The EXPECTED confirmation tag, derived here so a caller can persist it (P1#2a) without
+  // persisting `masterSecret`. A registration that must survive a crash needs to recognise the
+  // new device's confirmation later; storing this tag is sufficient for that, whereas storing the
+  // master secret would put a key capable of decrypting the sealed response at rest.
+  const confirmTagB64 = bytesToBase64(
+    await deriveConfirmTag({ crypto, masterSecret, thResponseB64: sealed.thResponseB64 }),
+  );
+  return { ...sealed, masterSecret, confirmTagB64 };
 }
 
 export async function openCeremonyResponse({

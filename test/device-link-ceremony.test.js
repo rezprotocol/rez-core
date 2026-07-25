@@ -194,6 +194,13 @@ test("happy path: request → open → response → open → confirm → verify 
     thResponseB64: resp.thResponseB64,
     payload: confirm.payload,
   }), true);
+
+  // P1#2a: the response also hands back the EXPECTED confirmation tag, so an approver that must
+  // survive a crash can persist THAT instead of the master secret — the tag recognises the new
+  // device's confirmation, while the secret would decrypt the sealed response.
+  assert.equal(typeof resp.confirmTagB64, "string");
+  assert.ok(resp.confirmTagB64.length > 0);
+  assert.equal(resp.confirmTagB64, confirm.payload.tagB64, "it is exactly the tag the device returns");
 });
 
 // ---- request rejections ----
