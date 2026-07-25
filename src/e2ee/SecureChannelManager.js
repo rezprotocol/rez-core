@@ -165,6 +165,16 @@ export class SecureChannelManager {
       ephemeralPublicKeyB64: bytesToBase64(handshake.ephemeralPublicKey),
       usedOneTimePreKey: handshake.usedOneTimePreKey,
       initiatorDhPublicKeyB64: bytesToBase64(selfDhKeyPair.publicKey),
+      // WHICH of the receiver's signed prekeys this handshake was computed against. The receiver
+      // rotates its signed prekey on every republish and retains a short window of prior ones, so
+      // it needs to know which retained private half to complete with — nothing else in the
+      // handshake identifies that.
+      //
+      // This is a SELECTION HINT, not an authorization: it only picks among private keys the
+      // receiver already holds. A caller naming a different one simply derives a different shared
+      // secret and the session fails — it reveals nothing and grants nothing, so the value does
+      // not need to be authenticated.
+      receiverSignedPreKeyPubB64: bytesToBase64(receiverBundle.signedPreKeyPublic),
     };
 
     logSecureChannelDebug("establishInitiatorSession.created", {
