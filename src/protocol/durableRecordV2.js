@@ -2,6 +2,20 @@ import { canonicalJSONStringify } from "../util/canonicalize.js";
 import { base64ToBytes } from "../util/bytes.js";
 import { durableRecordLocalId } from "./durableRecordV1.js";
 import { verifyAccountAuthority } from "../objects/device/verifyAccountAuthority.js";
+import { ACCOUNT_AUTHORITY_STATE_RECORD_KIND } from "../objects/device/AccountAuthorityStateV1.js";
+
+/**
+ * Record kinds that ONLY the account root may sign (audit P0, 2026-07-26).
+ *
+ * A record that decides who is authorized cannot be authored by a delegated signer, or the party a
+ * revocation names can rewrite it. The rule is structural — signer must equal owner, no cert chain,
+ * no delegated capability — precisely because the overlay is account-agnostic and cannot check
+ * revocation for accounts it does not home.
+ *
+ * SSOT: enforced once in verifyDurableRecordV2, so every verification site (the home's record.put,
+ * a stranger replica accepting dht.rec_store, and a peer reading the slot) inherits it.
+ */
+export const ROOT_SIGNED_ONLY_RECORD_KINDS = new Set([ACCOUNT_AUTHORITY_STATE_RECORD_KIND]);
 
 /**
  * DurableRecordV2 — the OWNER/SIGNER-separated durable record (S2.5 S8 / F2).
@@ -218,6 +232,31 @@ export async function verifyDurableRecordV2({
   const sigOk = await crypto.verify({ publicKey: signerPub, msg, sig: sigBytes });
   if (!sigOk) {
     return { ok: false, reason: "record signature invalid" };
+  }
+
+  // ROOT-ONLY KINDS (audit P0, 2026-07-26). A record that decides who is authorized may not be
+  // authored by a delegated signer: a revoked device still holds its key and its (now-revoked)
+  // cert, so it could sign a newer authority state omitting its own certId and un-revoke itself
+  // for every off-home peer. That is not a hypothetical — it was reachable through the generic
+  // record.put, which does not bind a record to a session.
+  //
+  // Checking revocation at the write path CANNOT fix this: the overlay is account-agnostic. A node
+  // that does not home an account has no way to learn its revocation state, so an attacker simply
+  // publishes to any other replica. The rule therefore has to be STRUCTURAL — verifiable by a
+  // stranger holding nothing but the record — which is exactly what "signer is the owner" is.
+  //
+  // Delegated devices still PUBLISH these records (the client-owned drain is unchanged); they may
+  // not AUTHOR them.
+  if (ROOT_SIGNED_ONLY_RECORD_KINDS.has(kind)) {
+    if (signer !== owner) {
+      return { ok: false, reason: "record kind " + kind + " must be signed by the account root (signer must equal owner)" };
+    }
+    if (Array.isArray(record.certChain) && record.certChain.length > 0) {
+      return { ok: false, reason: "record kind " + kind + " must carry no cert chain (root-signed, direct mode only)" };
+    }
+    if (record.requiredCapability !== undefined && record.requiredCapability !== null) {
+      return { ok: false, reason: "record kind " + kind + " must not assert a delegated capability" };
+    }
   }
 
   // Authority: owner→signer. DIRECT when signer == owner and no chain (the
