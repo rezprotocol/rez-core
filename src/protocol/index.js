@@ -20,6 +20,9 @@ export {
   durableRecordV2SignableBytes,
   buildDurableRecordV2,
   verifyDurableRecordV2,
+  ROOT_SIGNED_ONLY_RECORD_KINDS,
+  recordKindCarriesMonotonicEpoch,
+  durableRecordMonotonicBinding,
 } from "./durableRecordV2.js";
 export {
   MESH_ADDRESS_KINDS,

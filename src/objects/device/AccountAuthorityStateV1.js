@@ -94,6 +94,36 @@ export class AccountAuthorityStateV1 extends RRecord {
     return { revokedCertIds: [...this.revokedCertIds], minValidIssuedAtMs: this.minValidIssuedAtMs };
   }
 
+  /**
+   * The two fields a durable-record slot must read out of this payload WITHOUT constructing (and
+   * fully validating) the record: which account the state speaks for, and its monotonic `epoch`.
+   *
+   * This is the SSOT for that projection — `durableRecordMonotonicBinding` maps the
+   * `account-authority-state` record kind here rather than reaching into payload field names itself,
+   * so the payload shape stays owned by this class.
+   *
+   * THROWS on anything unreadable. A slot's rollback floor is an authorization-grade decision, so a
+   * missing or malformed epoch must never be coerced into a plausible 0 (which would silently admit
+   * every rollback). Callers convert the throw into an explicit rejection.
+   *
+   * @param {object} json - the parsed payload
+   * @returns {{ accountIdentityPublicKeyB64: string, epoch: number }}
+   */
+  static monotonicBindingOf(json) {
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      throw new Error("AccountAuthorityStateV1 payload must be an object");
+    }
+    const account = json.accountIdentityPublicKeyB64;
+    if (typeof account !== "string" || account.trim().length === 0) {
+      throw new Error("AccountAuthorityStateV1 payload is missing accountIdentityPublicKeyB64");
+    }
+    const epoch = json.epoch;
+    if (!Number.isSafeInteger(epoch) || epoch < 0) {
+      throw new Error("AccountAuthorityStateV1 payload epoch must be a non-negative safe integer");
+    }
+    return { accountIdentityPublicKeyB64: account.trim(), epoch };
+  }
+
   /** Signed body minus `sig`, canonical JSON. certIds normalized before signing. */
   static signableBytes({ v, purpose, accountIdentityPublicKeyB64, epoch, revokedCertIds, minValidIssuedAtMs, issuedAtMs, signerPublicKeyB64 } = {}) {
     const body = {

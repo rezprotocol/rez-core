@@ -2,7 +2,7 @@ import { canonicalJSONStringify } from "../util/canonicalize.js";
 import { base64ToBytes } from "../util/bytes.js";
 import { durableRecordLocalId } from "./durableRecordV1.js";
 import { verifyAccountAuthority } from "../objects/device/verifyAccountAuthority.js";
-import { ACCOUNT_AUTHORITY_STATE_RECORD_KIND } from "../objects/device/AccountAuthorityStateV1.js";
+import { AccountAuthorityStateV1, ACCOUNT_AUTHORITY_STATE_RECORD_KIND } from "../objects/device/AccountAuthorityStateV1.js";
 
 /**
  * Record kinds that ONLY the account root may sign (audit P0, 2026-07-26).
@@ -16,6 +16,61 @@ import { ACCOUNT_AUTHORITY_STATE_RECORD_KIND } from "../objects/device/AccountAu
  * a stranger replica accepting dht.rec_store, and a peer reading the slot) inherits it.
  */
 export const ROOT_SIGNED_ONLY_RECORD_KINDS = new Set([ACCOUNT_AUTHORITY_STATE_RECORD_KIND]);
+
+/**
+ * Record kinds whose payload carries a MONOTONIC epoch (audit P0 follow-on, 2026-07-26).
+ *
+ * `issuedAtMs` orders a slot, but it is a self-asserted wall clock: it says when a record was made,
+ * not where it sits in the account's authority history. Root-only signing closed the FORGERY door;
+ * it does not close ROLLBACK — a genuinely root-signed OLDER snapshot, replayed after the newer one
+ * expires out of a slot, still un-revokes a device. Ordering therefore has to key on the account's
+ * own monotonic counter, and the holder has to remember the highest one it ever saw.
+ *
+ * Each entry maps the kind to the reader that projects `{ accountIdentityPublicKeyB64, epoch }` out
+ * of its payload. The reader lives with the payload's class (SSOT) — this map only says WHICH kinds
+ * are epoch-ordered, never what their payloads look like.
+ *
+ * Deliberately a SEPARATE set from ROOT_SIGNED_ONLY_RECORD_KINDS even though today they hold the
+ * same one kind: "who may sign this" and "is this payload epoch-ordered" are independent properties,
+ * and a future delegated-but-epoch-ordered kind must still get the binding check below.
+ */
+const MONOTONIC_EPOCH_READERS = new Map([
+  [ACCOUNT_AUTHORITY_STATE_RECORD_KIND, (json) => AccountAuthorityStateV1.monotonicBindingOf(json)],
+]);
+
+/** Whether a record kind's payload carries a monotonic epoch (see MONOTONIC_EPOCH_READERS). */
+export function recordKindCarriesMonotonicEpoch(recordKind) {
+  return MONOTONIC_EPOCH_READERS.has(String(recordKind || "").trim());
+}
+
+/**
+ * The monotonic epoch a record's payload asserts, and the account it binds itself to.
+ *
+ * Returns `null` — explicitly, meaning "this kind is not epoch-ordered" — for every other kind.
+ * THROWS when the kind IS epoch-ordered but its payload cannot be read: absence is not a zero, and a
+ * slot that silently treated an unreadable payload as epoch 0 would admit every rollback it exists
+ * to stop. Callers turn the throw into a rejection.
+ *
+ * @param {object} record - a durable record (V1 or V2; the projection is version-agnostic because
+ *   both versions carry `recordKind` + `payloadB64` and land on the SAME slot coordinate)
+ * @returns {{ accountIdentityPublicKeyB64: string, epoch: number }|null}
+ */
+export function durableRecordMonotonicBinding(record) {
+  if (!record || typeof record !== "object") {
+    throw new Error("durableRecordMonotonicBinding requires a record object");
+  }
+  const kind = String(record.recordKind || "").trim();
+  const read = MONOTONIC_EPOCH_READERS.get(kind);
+  if (read === undefined) return null;
+  let json;
+  try {
+    json = JSON.parse(new TextDecoder().decode(base64ToBytes(String(record.payloadB64 || ""))));
+  } catch (err) {
+    throw new Error("record kind " + kind + " payload is not decodable JSON: "
+      + (err && err.message ? err.message : "unknown"));
+  }
+  return read(json);
+}
 
 /**
  * DurableRecordV2 — the OWNER/SIGNER-separated durable record (S2.5 S8 / F2).
@@ -256,6 +311,28 @@ export async function verifyDurableRecordV2({
     }
     if (record.requiredCapability !== undefined && record.requiredCapability !== null) {
       return { ok: false, reason: "record kind " + kind + " must not assert a delegated capability" };
+    }
+  }
+
+  // EPOCH-ORDERED KINDS: the payload must name the SAME account the envelope is owned by, and must
+  // carry a readable epoch. Without this the epoch a holder pins its rollback floor to would be
+  // unauthenticated relative to the slot — the envelope signature covers the payload bytes, but
+  // nothing would tie the account INSIDE the payload to the owner key the slot is derived from, so
+  // one account's slot could hold a state speaking for another. Structural, so every verification
+  // site (home record.put, stranger replica, peer read) inherits it.
+  if (recordKindCarriesMonotonicEpoch(kind)) {
+    let binding;
+    try {
+      binding = durableRecordMonotonicBinding(record);
+    } catch (err) {
+      return { ok: false, reason: "record kind " + kind + " payload is unreadable: " + (err && err.message ? err.message : "unknown") };
+    }
+    if (binding === null) {
+      // Unreachable given the guard above; if the two ever disagree, fail CLOSED rather than skip.
+      return { ok: false, reason: "record kind " + kind + " is epoch-ordered but yielded no binding" };
+    }
+    if (binding.accountIdentityPublicKeyB64 !== owner) {
+      return { ok: false, reason: "record kind " + kind + " payload is not bound to the record owner" };
     }
   }
 
