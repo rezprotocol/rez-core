@@ -5,7 +5,8 @@ import { bytesToBase32, base32ToBytes } from "../util/base32.js";
 import { concatBytes } from "../crypto/util/bytes.js";
 import { encryptAes256Gcm, decryptAes256Gcm } from "../crypto/aead/AeadAes256Gcm.js";
 import { buildDurableRecordV1, durableRecordSignableBytes, DURABLE_RECORD_VERSION } from "./durableRecordV1.js";
-import { DeviceLinkRequestV1 } from "../objects/device/DeviceLinkRequestV1.js";
+import { DEVICE_LINK_REQUEST_VERSION } from "../objects/device/DeviceLinkRequestV1.js";
+import { DeviceLinkRequestV2, DEVICE_LINK_REQUEST_V2_VERSION, DEVICE_LINK_REQUEST_V2_PURPOSE } from "../objects/device/DeviceLinkRequestV2.js";
 import { DeviceRegistrationV1 } from "../objects/device/DeviceRegistrationV1.js";
 import {
   requireCanonicalSpkiB64,
@@ -27,7 +28,7 @@ import {
  * Protocol shape (three durable records, all published under the PSK-derived
  * rendezvous key R — only PSK holders can write to or locate the slots):
  *
- *   request  = AEAD_{K_req}( { linkRequest: DeviceLinkRequestV1, eA } )
+ *   request  = AEAD_{K_req}( { linkRequest: DeviceLinkRequestV2, eA } )
  *   response = AEAD_{K_resp}( { delegationBundle } ), K_resp from
  *              HKDF( DH(eA,eB) || psk )  — PSK-authenticated EPHEMERAL DH:
  *              a photographed code (psk) cannot decrypt an intercepted
@@ -192,7 +193,7 @@ export function parseDeviceLinkCodeV1(code) {
  * The PSK-derived family (distinct HKDF info labels; the PSK itself is never
  * used directly as a key):
  *   rendezvousSeed — fed to SeedKeys.deriveEd25519 (SDK side) → keypair R
- *   ceremonyNonceB64 — DeviceLinkRequestV1.ceremonyNonceB64 (cross-ceremony
+ *   ceremonyNonceB64 — DeviceLinkRequestV2.ceremonyNonceB64 (cross-ceremony
  *     replay is structurally dead: a different psk derives a different nonce)
  *   requestKey — AEAD key for the request payload (overlay privacy: C's
  *     public key and the ephemeral point are invisible to observers)
@@ -288,8 +289,10 @@ export async function buildCeremonyRequest({
 
   const newDeviceId = DeviceRegistrationV1.deviceIdFor(deviceKeyPair.publicKeyB64);
   const body = {
-    v: 1,
-    purpose: "rez:device-link-request:v1",
+    // V2 ONLY (audit #5). Hardcoded literals here were how the v1 schema drifted in the first
+    // place — the constants come from the record class so the two cannot disagree.
+    v: DEVICE_LINK_REQUEST_V2_VERSION,
+    purpose: DEVICE_LINK_REQUEST_V2_PURPOSE,
     accountIdentityPublicKeyB64: accountSignPublicKeyB64,
     newDevicePublicKeyB64: deviceKeyPair.publicKeyB64,
     newDeviceId,
@@ -300,9 +303,9 @@ export async function buildCeremonyRequest({
   };
   const sigBytes = await crypto.sign({
     privateKey: base64ToBytes(deviceKeyPair.privateKeyB64),
-    msg: DeviceLinkRequestV1.signableBytes(body),
+    msg: DeviceLinkRequestV2.signableBytes(body),
   });
-  const linkRequest = new DeviceLinkRequestV1({ ...body, sig: { alg: "ed25519", sigB64: bytesToBase64(sigBytes) } });
+  const linkRequest = new DeviceLinkRequestV2({ ...body, sig: { alg: "ed25519", sigB64: bytesToBase64(sigBytes) } });
 
   const aad = aadBytes({ accountSignPublicKeyB64, rendezvousPublicKeyB64, step: "request" });
   const plaintext = utf8(canonicalJSONStringify({
@@ -325,6 +328,34 @@ export async function buildCeremonyRequest({
     thRequestB64: transcriptHashB64(aad, nonce, ciphertext),
     fingerprint: deviceLinkFingerprint(newDeviceId),
   };
+}
+
+/**
+ * The device-link request VERSION GATE (audit #5).
+ *
+ * There is no handshake between two client devices — the request arrives as a sealed record at a
+ * rendezvous coordinate — so nothing negotiated schema support beforehand and CONTRACT_VERSION
+ * (a node↔client concern) cannot gate it. The check therefore lives on the decrypted body, and it
+ * is TYPED so the approver can tell a terminal version mismatch apart from ordinary slot
+ * corruption, which it keeps polling through.
+ *
+ * A v1 request is refused rather than upgraded: it carries no device-signed inbox binding, so the
+ * approver would have nothing to register with `device.add` before releasing the leaf — exactly the
+ * registration-before-release window the ceremony exists to close. Linking is safer refused.
+ *
+ * @throws {Error & {code:"DEVICE_LINK_UPGRADE_REQUIRED"}}
+ */
+export function assertSupportedLinkRequestVersion(rawRequest) {
+  const v = rawRequest && typeof rawRequest === "object" ? rawRequest.v : undefined;
+  if (v !== DEVICE_LINK_REQUEST_VERSION) return;
+  const err = new Error(
+    "this device sent a v" + DEVICE_LINK_REQUEST_VERSION + " device-link request, which cannot be"
+      + " registered before its authority is released; update it and link again",
+  );
+  err.code = "DEVICE_LINK_UPGRADE_REQUIRED";
+  err.requiredVersion = DEVICE_LINK_REQUEST_V2_VERSION;
+  err.requiredPurpose = DEVICE_LINK_REQUEST_V2_PURPOSE;
+  throw err;
 }
 
 export async function openCeremonyRequest({
@@ -360,10 +391,14 @@ export async function openCeremonyRequest({
 
   // Structural validation happens at construction; then the C signature, the
   // account binding, the PSK-derived nonce, and the time window.
-  const linkRequest = new DeviceLinkRequestV1(inner && typeof inner === "object" ? inner.linkRequest : {});
+  const rawRequest = inner && typeof inner === "object" && inner.linkRequest && typeof inner.linkRequest === "object"
+    ? inner.linkRequest
+    : {};
+  assertSupportedLinkRequestVersion(rawRequest);
+  const linkRequest = new DeviceLinkRequestV2(rawRequest);
   const sigOk = await crypto.verify({
     publicKey: base64ToBytes(linkRequest.newDevicePublicKeyB64),
-    msg: DeviceLinkRequestV1.signableBytes(linkRequest.toJSON()),
+    msg: DeviceLinkRequestV2.signableBytes(linkRequest.toJSON()),
     sig: base64ToBytes(linkRequest.sig.sigB64),
   });
   if (sigOk !== true) {

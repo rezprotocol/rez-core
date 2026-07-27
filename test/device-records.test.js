@@ -7,6 +7,9 @@ import {
   DeviceInboxBindingV1,
   DeviceSetRecordV1,
   DeviceLinkRequestV1,
+  DeviceLinkRequestV2,
+  DEVICE_LINK_REQUEST_V2_VERSION,
+  DEVICE_LINK_REQUEST_V2_PURPOSE,
   DevicePrekeyBundleV1,
 } from "../src/objects/device/index.js";
 
@@ -121,12 +124,31 @@ test("DeviceSetRecordV1: rejects duplicate devices, bad revision, entry self-cer
   assert.throws(() => makeDeviceSet({ account, devices: [genKey()], overrides: { devices: [] } }), /non-empty array/);
 });
 
-// --- DeviceLinkRequestV1 (new-device-signed) ---
+// --- DeviceLinkRequestV1 (FROZEN) / DeviceLinkRequestV2 (produced) ---
+// Two builders on purpose. V1's signed body must not contain deviceInboxBinding — that is the
+// field whose unversioned addition audit #5 found — so a V1 fixture that quietly carried it would
+// defeat the point of freezing the schema.
 
 function makeLinkRequest({ account, newDevice, nonceB64 = Buffer.from(crypto.randomBytes(32)).toString("base64"), overrides = {} } = {}) {
   const body = {
     v: 1,
     purpose: "rez:device-link-request:v1",
+    accountIdentityPublicKeyB64: account.publicKeyB64,
+    newDevicePublicKeyB64: newDevice.publicKeyB64,
+    newDeviceId: deviceId(newDevice.publicKeyB64),
+    ceremonyNonceB64: nonceB64,
+    issuedAtMs: ISSUED,
+    expiresAtMs: EXPIRES,
+    ...overrides,
+  };
+  const sig = sign(newDevice.privateKey, DeviceLinkRequestV1.signableBytes(body));
+  return new DeviceLinkRequestV1({ ...body, sig });
+}
+
+function makeLinkRequestV2({ account, newDevice, nonceB64 = Buffer.from(crypto.randomBytes(32)).toString("base64"), overrides = {} } = {}) {
+  const body = {
+    v: DEVICE_LINK_REQUEST_V2_VERSION,
+    purpose: DEVICE_LINK_REQUEST_V2_PURPOSE,
     accountIdentityPublicKeyB64: account.publicKeyB64,
     newDevicePublicKeyB64: newDevice.publicKeyB64,
     newDeviceId: deviceId(newDevice.publicKeyB64),
@@ -137,8 +159,8 @@ function makeLinkRequest({ account, newDevice, nonceB64 = Buffer.from(crypto.ran
     expiresAtMs: EXPIRES,
     ...overrides,
   };
-  const sig = sign(newDevice.privateKey, DeviceLinkRequestV1.signableBytes(body));
-  return new DeviceLinkRequestV1({ ...body, sig });
+  const sig = sign(newDevice.privateKey, DeviceLinkRequestV2.signableBytes(body));
+  return new DeviceLinkRequestV2({ ...body, sig });
 }
 
 test("DeviceLinkRequestV1: new-device-signed request constructs, verifies, round-trips", () => {
@@ -161,21 +183,21 @@ test("DeviceLinkRequestV1: rejects newDeviceId mismatch and a missing ceremony n
   assert.throws(() => makeLinkRequest({ account, newDevice, nonceB64: Buffer.from("short").toString("base64") }), /must decode to 32 bytes/);
 });
 
-test("DeviceLinkRequestV1 (P1#2): carries the device-signed inbox binding; a foreign-device binding is rejected", () => {
+test("DeviceLinkRequestV2: carries the device-signed inbox binding; a foreign-device binding is rejected", () => {
   const account = genKey();
   const newDevice = genKey();
-  const rec = makeLinkRequest({ account, newDevice });
+  const rec = makeLinkRequestV2({ account, newDevice });
   assert.equal(rec.deviceInboxBinding.deviceId, deviceId(newDevice.publicKeyB64), "binding is for the linked device");
   assert.equal(rec.deviceInboxBinding.inboxId, "rez:inbox:link");
   // A binding minted by a DIFFERENT device is rejected (must match newDeviceId).
   const other = genKey();
   assert.throws(
-    () => makeLinkRequest({ account, newDevice, overrides: { deviceInboxBinding: makeBinding({ device: other }).toJSON() } }),
+    () => makeLinkRequestV2({ account, newDevice, overrides: { deviceInboxBinding: makeBinding({ device: other }).toJSON() } }),
     /must equal newDeviceId/,
   );
   // A missing binding is rejected.
   assert.throws(
-    () => makeLinkRequest({ account, newDevice, overrides: { deviceInboxBinding: undefined } }),
+    () => makeLinkRequestV2({ account, newDevice, overrides: { deviceInboxBinding: undefined } }),
     /deviceInboxBinding is invalid/,
   );
 });

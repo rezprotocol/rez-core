@@ -5,6 +5,9 @@ import crypto from "node:crypto";
 import {
   AccountDeviceMutationV1,
   ACCOUNT_DEVICE_MUTATION_PURPOSE,
+  AccountDeviceMutationV2,
+  ACCOUNT_DEVICE_MUTATION_V2_VERSION,
+  ACCOUNT_DEVICE_MUTATION_V2_PURPOSE,
   DeviceInboxBindingV1,
   AccountDeviceCapabilityV1,
   ACCOUNT_DEVICE_CAPABILITY_PURPOSE,
@@ -78,8 +81,8 @@ function addTarget(account, sibling) {
 
 function makeMutation({ account, signer, action, target, opId = "op-1", expectedRevision = 0, overrides = {} } = {}) {
   const body = {
-    v: 1,
-    purpose: ACCOUNT_DEVICE_MUTATION_PURPOSE,
+    v: ACCOUNT_DEVICE_MUTATION_V2_VERSION,
+    purpose: ACCOUNT_DEVICE_MUTATION_V2_PURPOSE,
     opId,
     accountIdentityPublicKeyB64: account.publicKeyB64,
     expectedRevision,
@@ -90,8 +93,8 @@ function makeMutation({ account, signer, action, target, opId = "op-1", expected
     expiresAtMs: FAR,
     ...overrides,
   };
-  const sig = sign(signer.privateKey, AccountDeviceMutationV1.signableBytes(body));
-  return new AccountDeviceMutationV1({ ...body, sig });
+  const sig = sign(signer.privateKey, AccountDeviceMutationV2.signableBytes(body));
+  return new AccountDeviceMutationV2({ ...body, sig });
 }
 
 test("wire types exist for the mutation + authority-state ops", () => {
@@ -107,8 +110,8 @@ test("device.add mutation: constructs, verifies (signer-bound), round-trips", ()
   const rec = makeMutation({ account, signer: account, action: "device.add", target: addTarget(account, sibling) });
   assert.equal(rec.action, "device.add");
   // The signer (here the primary account key) signs the envelope.
-  assert.ok(verify(account.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig));
-  const back = AccountDeviceMutationV1.fromJSON(rec.toJSON());
+  assert.ok(verify(account.publicKeyB64, AccountDeviceMutationV2.signableBytes(rec.toJSON()), rec.sig));
+  const back = AccountDeviceMutationV2.fromJSON(rec.toJSON());
   assert.equal(back.opId, rec.opId);
   assert.equal(back.target.deviceInboxBinding.deviceId, deviceId(sibling.publicKeyB64));
   assert.equal(back.target.deviceCapability.granteeDeviceId, deviceId(sibling.publicKeyB64), "the leaf cert grants the added device");
@@ -120,8 +123,8 @@ test("device.add: a delegated device (C) can sign the envelope", () => {
   const sibling = genKey();
   const rec = makeMutation({ account, signer: deviceC, action: "device.add", target: addTarget(account, sibling) });
   assert.equal(rec.signerPublicKeyB64, deviceC.publicKeyB64);
-  assert.ok(verify(deviceC.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig), "C's signature verifies");
-  assert.ok(!verify(account.publicKeyB64, AccountDeviceMutationV1.signableBytes(rec.toJSON()), rec.sig), "not B's");
+  assert.ok(verify(deviceC.publicKeyB64, AccountDeviceMutationV2.signableBytes(rec.toJSON()), rec.sig), "C's signature verifies");
+  assert.ok(!verify(account.publicKeyB64, AccountDeviceMutationV2.signableBytes(rec.toJSON()), rec.sig), "not B's");
 });
 
 test("device.revoke mutation: revokedDeviceId + optional revokedCertId", () => {
@@ -132,7 +135,7 @@ test("device.revoke mutation: revokedDeviceId + optional revokedCertId", () => {
     target: { revokedDeviceId: deviceId(victim.publicKeyB64), revokedCertId: "rez:cap:" + "a".repeat(64) },
   });
   assert.equal(rec.action, "device.revoke");
-  const back = AccountDeviceMutationV1.fromJSON(rec.toJSON());
+  const back = AccountDeviceMutationV2.fromJSON(rec.toJSON());
   assert.equal(back.target.revokedCertId, "rez:cap:" + "a".repeat(64));
   // revokedCertId is optional.
   const rec2 = makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: deviceId(victim.publicKeyB64) } });
@@ -186,5 +189,5 @@ test("the signed body binds the target: tampering the target breaks the signatur
   const sibling = genKey();
   const rec = makeMutation({ account, signer: account, action: "device.revoke", target: { revokedDeviceId: deviceId(sibling.publicKeyB64) } });
   const tampered = { ...rec.toJSON(), target: { revokedDeviceId: deviceId(genKey().publicKeyB64) } };
-  assert.ok(!verify(account.publicKeyB64, AccountDeviceMutationV1.signableBytes(tampered), rec.sig), "swapped target no longer verifies");
+  assert.ok(!verify(account.publicKeyB64, AccountDeviceMutationV2.signableBytes(tampered), rec.sig), "swapped target no longer verifies");
 });

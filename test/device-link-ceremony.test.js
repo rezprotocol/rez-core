@@ -20,9 +20,14 @@ import {
   deviceLinkFingerprint,
   sealCeremonyRecord,
   verifyCeremonyRecord,
+  assertSupportedLinkRequestVersion,
 } from "../src/protocol/deviceLinkV1.js";
 import { bytesToBase64, base64ToBytes } from "../src/util/bytes.js";
 import {
+  DEVICE_LINK_REQUEST_VERSION,
+  DEVICE_LINK_REQUEST_PURPOSE,
+  DEVICE_LINK_REQUEST_V2_VERSION,
+  DEVICE_LINK_REQUEST_V2_PURPOSE,
   DeviceInboxBindingV1,
   DEVICE_INBOX_BINDING_PURPOSE,
   DeviceRegistrationV1,
@@ -481,4 +486,38 @@ test("fingerprint: stable xxxx-xxxx-xxxx-xxxx-xxxx from the deviceId; rejects no
   assert.equal(fp, "ab12-ab12-ab12-ab12-ab12");
   assert.equal(deviceLinkFingerprint(id), fp);
   assert.throws(() => deviceLinkFingerprint("rez:acct:whatever"), /rez:dev/);
+});
+
+// ── AUDIT #5: version gating with NO handshake to lean on ──────────────────────────────────────
+
+test("the ceremony produces V2 requests only", async () => {
+  const c = makeCeremony();
+  const { payload } = await runRequest(c);
+  const opened = await runOpenRequest(c, payload);
+  assert.equal(opened.linkRequest.v, DEVICE_LINK_REQUEST_V2_VERSION);
+  assert.equal(opened.linkRequest.purpose, DEVICE_LINK_REQUEST_V2_PURPOSE);
+  assert.ok(opened.linkRequest.deviceInboxBinding, "v2 carries the binding that makes registration-before-release possible");
+});
+
+test("a V1 request is refused with a TYPED upgrade-required error, not a generic failure", () => {
+  // There is no handshake between two client devices — the request arrives as a sealed record at a
+  // rendezvous coordinate — so CONTRACT_VERSION cannot gate this and the check has to live on the
+  // decrypted body. It must be TYPED, because the approver has to tell a terminal version mismatch
+  // apart from ordinary slot corruption (which it keeps polling through) — see
+  // DeviceLinkApprover, which rethrows this code and swallows everything else.
+  assert.throws(
+    () => assertSupportedLinkRequestVersion({ v: DEVICE_LINK_REQUEST_VERSION, purpose: DEVICE_LINK_REQUEST_PURPOSE }),
+    (err) => {
+      assert.equal(err.code, "DEVICE_LINK_UPGRADE_REQUIRED");
+      assert.equal(err.requiredVersion, DEVICE_LINK_REQUEST_V2_VERSION);
+      assert.equal(err.requiredPurpose, DEVICE_LINK_REQUEST_V2_PURPOSE);
+      return true;
+    },
+  );
+  // V2 and anything unrecognised pass this gate — an unknown version is the record constructor's
+  // job to reject, and conflating the two would give a misleading "upgrade your device" for a
+  // corrupt body.
+  assert.doesNotThrow(() => assertSupportedLinkRequestVersion({ v: DEVICE_LINK_REQUEST_V2_VERSION }));
+  assert.doesNotThrow(() => assertSupportedLinkRequestVersion({ v: 99 }));
+  assert.doesNotThrow(() => assertSupportedLinkRequestVersion(null));
 });
