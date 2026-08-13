@@ -29,6 +29,10 @@ export class RCryptoProvider extends RAbstract {
     return this.abstract("verify");
   }
 
+  signingKeyPairFromSeed(_seed) {
+    return this.abstract("signingKeyPairFromSeed");
+  }
+
   dhGenerateKeyPair(_params = {}) {
     return this.abstract("dhGenerateKeyPair");
   }

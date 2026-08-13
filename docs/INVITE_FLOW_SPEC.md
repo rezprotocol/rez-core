@@ -4,9 +4,12 @@ This document is normative. It defines Invite Protocol v1.
 
 ## 0. Scope and assumptions
 
-- Rez Chat is a deployable consisting of a UI plus a required host runtime (node). There is no supported “web-only” mode.
-- Invite creation and verification MUST be enforceable by the host runtime.
-- Application semantics (invites, contacts, threads, indexes) are owned by rez-chat. `rez-sdk` exposes generic protocol and client capabilities that rez-chat consumes. The host runtime (`rez-node`) is substrate-only.
+- Rez Chat consists of a UI plus a client-owned chat runtime connected to a Rez node. The runtime
+  may execute in the hosted web app, desktop sidecar, or a mobile shell; a desktop install is not
+  required.
+- Invite creation and verification MUST be enforceable by the client-owned chat runtime. The
+  shared node transports and stores protocol material but does not custody account identity keys.
+- Application semantics (invites, contacts, threads, indexes) are owned by rez-chat. `rez-sdk` exposes generic protocol and client capabilities that rez-chat consumes. The home runtime (`rez-node`) is substrate-only.
 
 WS transport contracts:
 - The chat bridge exposes `invite.create` with minimal params (e.g. expiry/maxUses).
@@ -25,15 +28,16 @@ All required protocol fields MUST be carried inside `inviteCode`.
 
 - **Inviter**: The user who creates an invite.
 - **Acceptor**: The user who accepts an invite.
-- **Host**: The node runtime that custodies identity authority and storage substrate.
+- **Home**: The shared node that supplies account-blind routing and durable storage substrate.
+- **Client runtime**: The account-authorized runtime that owns identity authority and chat state.
 - **Invite envelope**: The structured payload that is signed and encoded into `inviteCode`.
-- **Invite record**: The authoritative lifecycle record stored by inviter’s host (uses/status/expiry).
+- **Invite record**: The authoritative lifecycle record stored by the inviter’s client runtime (uses/status/expiry).
 
 ## 2. Signing authority (Decision A)
 
-Invite envelopes MUST be signed by a keypair custodied by the host runtime.
+Invite envelopes MUST be signed by a keypair custodied by the client runtime.
 
-- The signing authority is the inviter’s identity authority, custodied by the host keystore.
+- The signing authority is the inviter’s identity authority, held in the encrypted client keystore.
 - Implementations MAY use either:
   1) the inviter identity signing key, or
   2) a dedicated invite signing keypair derived from the keystore root (recommended for compartmentalization).
@@ -63,7 +67,7 @@ The invite envelope is a JSON object with the following required fields (unless 
 - `v` (number): MUST be `1`.
 - `inviteId` (string): globally unique identifier (recommended: `inv_<ulid>` or equivalent).
 - `kind` (string): `"direct"` or `"group"`.
-- `createdAtMs` (number): inviter host epoch ms when created.
+- `createdAtMs` (number): inviter client-runtime epoch ms when created.
 - `expiresAtMs` (number): epoch ms. MUST be > createdAtMs.
 - `maxUses` (number): integer >= 1.
 - `scope` (object): scope constraints. v1 MUST include:
@@ -122,7 +126,7 @@ If verification fails, accept MUST reject without persisting success effects.
 
 ## 6. Invite lifecycle (authoritative inviter-side record)
 
-Invites MUST be enforced by an authoritative lifecycle record stored by the inviter host runtime via SDK semantics.
+Invites MUST be enforced by an authoritative lifecycle record stored by the inviter client runtime via SDK semantics.
 
 Record fields:
 - `inviteId`

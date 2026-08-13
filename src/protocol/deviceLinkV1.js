@@ -44,9 +44,9 @@ import {
  * ceremony context (account B + rendezvous R + step), so no ciphertext can
  * be replayed across accounts, ceremonies, or steps.
  *
- * NOTE: the rendezvous SEED is derived here, but seed→Ed25519-keypair uses
- * SeedKeys (node:crypto) and lives in rez-sdk (src/device-link/rendezvous.js)
- * — this module must stay importable from the browser-safe core barrel.
+ * NOTE: the rendezvous SEED is derived here. The SDK applies the frozen
+ * SeedKeys-compatible label HKDF and asks the runtime crypto provider to turn
+ * the final 32-byte seed into an Ed25519 PKCS#8/SPKI pair.
  */
 
 export const DEVICE_LINK_CODE_PREFIX = "rez:link:v1:";
@@ -56,8 +56,8 @@ export const DEVICE_LINK_RECORD_ID_REQUEST = "request";
 export const DEVICE_LINK_RECORD_ID_RESPONSE = "response";
 export const DEVICE_LINK_RECORD_ID_CONFIRM = "confirm";
 export const DEVICE_LINK_PSK_BYTES = 32;
-// SeedKeys label the SDK uses to turn the derived rendezvous seed into the
-// Ed25519 keypair R. Exported so the derivation contract stays single-sourced.
+// Frozen label the SDK uses for the second, SeedKeys-compatible HKDF that
+// turns the derived rendezvous seed into the Ed25519 private seed for R.
 export const DEVICE_LINK_RENDEZVOUS_KEY_LABEL = "rez/link/rendezvous/v1";
 // payloadB64 budget: the node caps records at 16384 chars; leave headroom for
 // the durable-record envelope fields.
