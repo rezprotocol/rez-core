@@ -4,6 +4,7 @@ import {
   KeystoreStore,
   createKeystoreAccount,
   unlockKeystoreAccount,
+  resealKeystoreEnvelope,
   createKeystoreEnvelope,
   assertKeystoreEnvelope,
   KEYSTORE_ENVELOPE_VERSION,
@@ -107,4 +108,40 @@ test("unlockKeystoreAccount fails on wrong password", async () => {
     () => unlockKeystoreAccount({ password: "wrong", keystoreStore: store, cryptoProvider: globalThis.crypto }),
     /decrypt|invalid|ciphertext|password|operation/i,
   );
+});
+
+test("resealKeystoreEnvelope changes only the password boundary", async () => {
+  const storage = createMemoryStorage();
+  const store = new KeystoreStore({ storageProvider: storage, key: "reseal" });
+  await createKeystoreAccount({
+    password: "old-password",
+    profileName: "Stable",
+    keystoreStore: store,
+    cryptoProvider: globalThis.crypto,
+  });
+  const before = await unlockKeystoreAccount({
+    password: "old-password",
+    keystoreStore: store,
+    cryptoProvider: globalThis.crypto,
+  });
+  const resealed = await resealKeystoreEnvelope({
+    envelope: await store.getKeystoreEnvelope(),
+    oldPassword: "old-password",
+    newPassword: "new-password",
+    cryptoProvider: globalThis.crypto,
+  });
+  await store.putKeystoreEnvelope(resealed);
+
+  await assert.rejects(
+    () => unlockKeystoreAccount({ password: "old-password", keystoreStore: store, cryptoProvider: globalThis.crypto }),
+  );
+  const after = await unlockKeystoreAccount({
+    password: "new-password",
+    keystoreStore: store,
+    cryptoProvider: globalThis.crypto,
+  });
+  assert.equal(after.accountId, before.accountId);
+  assert.equal(after.deviceId, before.deviceId);
+  assert.deepEqual(after.deviceKeyPair, before.deviceKeyPair);
+  assert.deepEqual(after.identityKeyPair, before.identityKeyPair);
 });

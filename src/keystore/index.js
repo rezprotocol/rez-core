@@ -21,5 +21,17 @@ export {
   KEYSTORE_PAYLOAD_VERSION_DELEGATED,
   createKeystoreAccount,
   createDelegatedKeystoreAccount,
+  resealKeystoreEnvelope,
   unlockKeystoreAccount,
 } from "./KeystoreAccount.js";
+
+export {
+  BROWSER_ACCOUNT_SEED_LABEL,
+  BROWSER_ACCOUNT_DH_SEED_LABEL,
+  generateBrowserMnemonic,
+  validateBrowserMnemonic,
+  browserMnemonicToSeed,
+  deriveBrowserAccountRecovery,
+  sealBrowserRecoveryMnemonic,
+  openBrowserRecoveryMnemonic,
+} from "./BrowserRecovery.js";

@@ -329,8 +329,74 @@ async function decryptKeystoreToJson({ password, envelope, cryptoProvider = null
     envelope,
     cryptoProvider,
   });
-  const json = JSON.parse(new TextDecoder().decode(plaintextBytes));
-  return { json, unlockKeyBytes };
+  try {
+    const json = JSON.parse(new TextDecoder().decode(plaintextBytes));
+    return { json, unlockKeyBytes };
+  } finally {
+    plaintextBytes.fill(0);
+  }
+}
+
+export async function resealKeystoreEnvelope({
+  envelope,
+  oldPassword = "",
+  newPassword = "",
+  cryptoProvider = null,
+} = {}) {
+  const oldPwd = String(oldPassword || "");
+  const newPwd = String(newPassword || "");
+  if (!oldPwd) throw new Error("Old password is required");
+  if (!newPwd) throw new Error("New password is required");
+  if (oldPwd === newPwd) throw new Error("New password must differ from old password");
+
+  const normalizedEnvelope = createKeystoreEnvelope(envelope);
+  const decrypted = await decryptKeystoreToJson({
+    password: oldPwd,
+    envelope: normalizedEnvelope,
+    cryptoProvider,
+  });
+  const json = decrypted.json;
+  const oldUnlockKeyBytes = decrypted.unlockKeyBytes;
+  let saltBytes = null;
+  let newUnlockKeyBytes = null;
+  let plaintextJsonBytes = null;
+  try {
+    const rawVersion = Number(json && json.keystoreVersion);
+    if (rawVersion === KEYSTORE_PAYLOAD_VERSION_DELEGATED) {
+      parseDelegatedPayloadJson(json);
+    } else if (rawVersion === KEYSTORE_PAYLOAD_VERSION) {
+      parsePayloadJson(json);
+    } else {
+      throw new Error("Keystore must be unlocked once before changing its password");
+    }
+
+    saltBytes = randomBytes(16, cryptoProvider);
+    const kdfParams = getDefaultKdfParams(cryptoProvider);
+    newUnlockKeyBytes = await deriveUnlockKey({
+      password: newPwd,
+      saltBytes,
+      kdfParams,
+      cryptoProvider,
+    });
+    plaintextJsonBytes = new TextEncoder().encode(JSON.stringify(json));
+    const encrypted = await encryptKeystore({
+      unlockKeyBytes: newUnlockKeyBytes,
+      plaintextJsonBytes,
+      cryptoProvider,
+    });
+    return createKeystoreEnvelope({
+      kdfParams,
+      saltB64: toBase64(saltBytes),
+      ciphertextB64: toBase64(encrypted.ciphertextBytes),
+      createdAtMs: normalizedEnvelope.createdAtMs,
+      updatedAtMs: Date.now(),
+    });
+  } finally {
+    oldUnlockKeyBytes.fill(0);
+    if (plaintextJsonBytes) plaintextJsonBytes.fill(0);
+    if (newUnlockKeyBytes) newUnlockKeyBytes.fill(0);
+    if (saltBytes) saltBytes.fill(0);
+  }
 }
 
 // Lazy upgrade of a v1 payload (random unsigned deviceId, no device key) to v2:
