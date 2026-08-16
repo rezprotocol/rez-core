@@ -2,6 +2,34 @@ import { RSerializable } from "../../base/index.js";
 import { OnionKeyRecordV1 } from "./OnionKeyRecordV1.js";
 import { PRICING_UNITS, isFiniteNumber } from "../../util/settlement.js";
 import { isNonEmptyString } from "../../util/strings.js";
+import { validateRelayIdentityBinding } from "../../identity/relayIdentity.js";
+
+/**
+ * The ONE canonical transport-name vocabulary (ATLAS_PREREQUISITES P2.2).
+ * Both meta.node.transports and meta.capabilities.transports validate against
+ * this set — two divergent enums for the same concept caused silent drift.
+ */
+export const RELAY_TRANSPORT_NAMES = Object.freeze(["http", "https", "tcp", "ws", "wss"]);
+const TRANSPORT_SET = new Set(RELAY_TRANSPORT_NAMES);
+
+function validateTransportList(list, label, maxLen) {
+  if (!Array.isArray(list)) {
+    throw new Error(label + " must be array");
+  }
+  if (list.length > maxLen) {
+    throw new Error(label + " too long");
+  }
+  const seen = new Set();
+  for (const transport of list) {
+    if (typeof transport !== "string" || !TRANSPORT_SET.has(transport)) {
+      throw new Error(label + " invalid");
+    }
+    if (seen.has(transport)) {
+      throw new Error(label + " must be unique");
+    }
+    seen.add(transport);
+  }
+}
 
 function isEndpoint(value) {
   return value && typeof value === "object" && isNonEmptyString(value.host)
@@ -79,23 +107,7 @@ function validateNodeMeta(node) {
     if (!text || text.length > 4096) throw new Error("RelayDescriptorV1.meta.node.publicKeyB64 invalid");
   }
   if (node.transports !== undefined) {
-    if (!Array.isArray(node.transports)) {
-      throw new Error("RelayDescriptorV1.meta.node.transports must be array");
-    }
-    if (node.transports.length > 8) {
-      throw new Error("RelayDescriptorV1.meta.node.transports too long");
-    }
-    const allowed = new Set(["http", "https", "tcp", "ws", "wss"]);
-    const seen = new Set();
-    for (const transport of node.transports) {
-      if (typeof transport !== "string" || !allowed.has(transport)) {
-        throw new Error("RelayDescriptorV1.meta.node.transports invalid");
-      }
-      if (seen.has(transport)) {
-        throw new Error("RelayDescriptorV1.meta.node.transports must be unique");
-      }
-      seen.add(transport);
-    }
+    validateTransportList(node.transports, "RelayDescriptorV1.meta.node.transports", 8);
   }
   if (node.protocolVersion !== undefined) {
     const value = Number(node.protocolVersion);
@@ -178,23 +190,7 @@ function validateMeta(meta) {
       }
     }
     if (meta.capabilities.transports !== undefined) {
-      if (!Array.isArray(meta.capabilities.transports)) {
-        throw new Error("RelayDescriptorV1.meta.capabilities.transports must be array");
-      }
-      if (meta.capabilities.transports.length > 5) {
-        throw new Error("RelayDescriptorV1.meta.capabilities.transports too long");
-      }
-      const allowed = new Set(["tcp", "http"]);
-      const seen = new Set();
-      for (const transport of meta.capabilities.transports) {
-        if (typeof transport !== "string" || !allowed.has(transport)) {
-          throw new Error("RelayDescriptorV1.meta.capabilities.transports invalid");
-        }
-        if (seen.has(transport)) {
-          throw new Error("RelayDescriptorV1.meta.capabilities.transports must be unique");
-        }
-        seen.add(transport);
-      }
+      validateTransportList(meta.capabilities.transports, "RelayDescriptorV1.meta.capabilities.transports", 5);
     }
     if (meta.capabilities.storeAndForward !== undefined && typeof meta.capabilities.storeAndForward !== "boolean") {
       throw new Error("RelayDescriptorV1.meta.capabilities.storeAndForward must be boolean");
@@ -236,12 +232,35 @@ export class RelayDescriptorV1 extends RSerializable {
     }
     if (capabilities !== undefined) {
       this.assert(capabilities && typeof capabilities === "object" && !Array.isArray(capabilities), "RelayDescriptorV1.capabilities must be plain object", { capabilities });
+      // P2.2 (ATLAS_PREREQUISITES): top-level capabilities was a signed,
+      // unbounded, gossiped, persisted blob with ZERO readers — pure
+      // attacker-controlled surface. meta.capabilities is the one truth.
+      // The field is reserved: only an empty object survives for wire compat.
+      this.assert(Object.keys(capabilities).length === 0,
+        "RelayDescriptorV1.capabilities is reserved and must be empty; use meta.capabilities", { capabilities });
     }
     if (meta !== undefined) {
       validateMeta(meta);
     }
     if (sig !== undefined) {
       validateSignature(sig, meta);
+    }
+    // ADR-RELAY-IDENTITY: when the descriptor carries node key material its
+    // relayKeyId must be the self-certifying identity of that key. (Whether
+    // key material is REQUIRED at all is admission policy, owned by rez-node.)
+    const bindingNode = meta && meta.node ? meta.node : null;
+    const bindingKeyB64 = bindingNode && typeof bindingNode.publicKeyB64 === "string"
+      ? bindingNode.publicKeyB64.trim()
+      : "";
+    if (bindingKeyB64) {
+      const binding = validateRelayIdentityBinding({
+        relayKeyId: typeof relayKeyId === "string" ? relayKeyId.trim() : relayKeyId,
+        nodeKeyId: bindingNode && typeof bindingNode.keyId === "string" ? bindingNode.keyId.trim() : "",
+        nodePublicKeyB64: bindingKeyB64,
+      });
+      this.assert(binding.ok === true,
+        "RelayDescriptorV1 relay identity binding invalid: " + binding.reason,
+        { relayKeyId, reason: binding.reason });
     }
     this.assert(isFiniteNumber(expiresAt), "RelayDescriptorV1.expiresAt must be number", { expiresAt });
     if (Number.isFinite(nowMs)) {

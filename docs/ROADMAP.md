@@ -176,6 +176,14 @@ Recognition gates flip to `enforce`, epoch emissions go live, the token deploys 
 - Deferred items must not be implemented without explicit approval.
 - Items move into scope only by updating [`ARCHITECTURE_GUARANTEES.md`](./ARCHITECTURE_GUARANTEES.md) and the relevant per-package architecture references.
 
+## Rez Atlas Readiness
+
+Rez Atlas remains deferred and optional. Generic RezNet prerequisites and the
+boundaries that ongoing work must preserve are tracked in
+[`ATLAS_PREREQUISITES.md`](./ATLAS_PREREQUISITES.md). Atlas records, workers,
+observations, planners, schedulers, storage, economics, and UI are not prerequisite
+work and require separate explicit approval.
+
 ---
 
 ## Current Phase Guardrail

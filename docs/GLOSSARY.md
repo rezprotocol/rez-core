@@ -114,7 +114,7 @@ Definitions of REZ-specific terms used in rez-core and related documentation. Sh
 
 **rez.onion.v2** — Outer envelope type for v2 onion routing. Body and layer format differ from v1; supports size classes and improved replay handling.
 
-**rez.receipt.v1** — Envelope type for relay attestations (receipts): accepted/delivered. Body contains kind, message ref (e.g. innerHash, clientMsgId), and relay signature.
+**rez.receipt.v1** — RETIRED (DT-005, 2026-08-15). Was the envelope type for relay attestations; the implementation was dead code and has been deleted. Delivery evidence is the three-way split in RECEIPTS_AND_DELIVERY_STATES.md (transport custody facts / E2eeDeliveryAckV1 end-to-end acks / application state). The type name is reserved and must not be reused.
 
 ---
 
