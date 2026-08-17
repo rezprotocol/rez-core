@@ -16,14 +16,40 @@ export class FileSystemDataStore extends RDataStore {
     this.#basePath = path.resolve(basePath);
   }
 
-  #keyToPath(key) {
-    this.assert(typeof key === "string" && key.length > 0, "requires non-empty string key");
-    const segments = key.split("/");
+  /**
+   * Split a caller-supplied key or prefix into path segments, rejecting any
+   * that could escape basePath.
+   *
+   * ONE rule for both (CORE-1): keys were validated here while `list(prefix)`
+   * joined its segments raw, so the same string was safe as a key and a
+   * traversal as a prefix. Two call sites, two behaviours, one boundary — the
+   * shape of bug this repo keeps rediscovering.
+   *
+   * `.` and `..` are rejected for both — those are the segments that escape.
+   * Empty segments differ: a key must name an exact file so `a//b` is a
+   * malformed key, but `list("mbox/a/evt/")` is an established calling
+   * convention and its trailing empty segment is inert (`path.join` drops it).
+   * Rejecting it would break real callers for no security gain, so prefixes
+   * tolerate empties while keys keep the stricter rule they already had.
+   *
+   * @param {string} value the raw key or prefix
+   * @param {string} label what to call it in the error ("key" / "prefix")
+   * @param {{ allowEmptySegments?: boolean }} [opts]
+   */
+  #validatedSegments(value, label, { allowEmptySegments = false } = {}) {
+    this.assert(typeof value === "string" && value.length > 0, `requires non-empty string ${label}`);
+    const segments = value.split("/");
     for (const seg of segments) {
-      this.assert(seg.length > 0, "key must not contain empty segments");
-      this.assert(seg !== "." && seg !== "..", "key must not contain . or .. segments");
+      if (!allowEmptySegments) {
+        this.assert(seg.length > 0, `${label} must not contain empty segments`);
+      }
+      this.assert(seg !== "." && seg !== "..", `${label} must not contain . or .. segments`);
     }
-    return path.join(this.#basePath, ...segments) + ".json";
+    return allowEmptySegments ? segments.filter((seg) => seg.length > 0) : segments;
+  }
+
+  #keyToPath(key) {
+    return path.join(this.#basePath, ...this.#validatedSegments(key, "key")) + ".json";
   }
 
   #pathToKey(filePath) {
@@ -55,9 +81,19 @@ export class FileSystemDataStore extends RDataStore {
   }
 
   async list(prefix = "", { cursor, limit, reverse } = {}) {
+    // CORE-1 (second half): `list` is public and used to join prefix segments
+    // straight onto basePath with none of the `.`/`..` validation `#keyToPath`
+    // applies to keys. A prefix like `../../etc` therefore built a path outside
+    // the store and `#collectFiles` walked it — the containment assert in
+    // `#pathToKey` only fires afterwards, once the traversal has already
+    // happened. Same rule as keys, applied at the same boundary.
     const dirPath = prefix
-      ? path.join(this.#basePath, ...prefix.split("/"))
+      ? path.join(this.#basePath, ...this.#validatedSegments(prefix, "prefix", { allowEmptySegments: true }))
       : this.#basePath;
+    this.assert(
+      dirPath === this.#basePath || this.#isInsideBase(dirPath),
+      "prefix resolves outside basePath",
+    );
 
     const files = await this.#collectFiles(dirPath);
     let keys = files
@@ -148,18 +184,49 @@ export class FileSystemDataStore extends RDataStore {
     return results;
   }
 
+  /**
+   * Is `candidate` strictly inside basePath?
+   *
+   * CORE-1: this used to be `resolved.startsWith(this.#basePath)`, which is a
+   * PREFIX test, not a containment test — `/tmp/base2` starts with `/tmp/base`,
+   * so a sibling directory read as "inside". The same file already had the
+   * correct form 120 lines up in `#pathToKey`; the two just drifted.
+   *
+   * `path.relative` is the containment test: for a path inside the base it
+   * yields a relative walk with no leading `..`, and for anything outside (or
+   * on another drive, where it returns an absolute path) it does not.
+   */
+  #isInsideBase(candidate) {
+    const rel = path.relative(this.#basePath, candidate);
+    if (rel === "") return false; // the base itself is not "inside" it
+    if (path.isAbsolute(rel)) return false; // different root/drive
+    return rel !== ".." && !rel.startsWith(".." + path.sep);
+  }
+
   async #pruneEmptyDirs(dirPath) {
     const resolved = path.resolve(dirPath);
-    if (resolved === this.#basePath || !resolved.startsWith(this.#basePath)) return;
+    if (!this.#isInsideBase(resolved)) return;
+    let entries;
     try {
-      const entries = await fs.readdir(resolved);
-      if (entries.length === 0) {
-        await fs.rmdir(resolved);
-        await this.#pruneEmptyDirs(path.dirname(resolved));
-      }
-    } catch {
-      // ignore — dir may already be gone or non-empty
+      entries = await fs.readdir(resolved);
+    } catch (err) {
+      // ENOENT: already removed by a concurrent prune — nothing left to do.
+      // Anything else (EACCES, EIO) is a real storage fault and must not be
+      // swallowed silently, or a failing disk looks like a tidy one.
+      if (err && err.code === "ENOENT") return;
+      throw err;
     }
+    if (entries.length !== 0) return;
+    try {
+      await fs.rmdir(resolved);
+    } catch (err) {
+      // ENOTEMPTY/EEXIST: another writer refilled it between the readdir and
+      // the rmdir — a benign race, and the directory is wanted after all.
+      // ENOENT: a concurrent prune won. Both mean "stop", not "fail".
+      if (err && (err.code === "ENOTEMPTY" || err.code === "EEXIST" || err.code === "ENOENT")) return;
+      throw err;
+    }
+    await this.#pruneEmptyDirs(path.dirname(resolved));
   }
 }
 

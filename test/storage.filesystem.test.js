@@ -213,3 +213,143 @@ test("FileSystemDataStore — Uint8Array survives store restart (file-on-disk)",
     assert.deepEqual(Array.from(got.bytes), [42, 7, 0, 255]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CORE-1 — sibling-prefix containment
+// ---------------------------------------------------------------------------
+// `#pruneEmptyDirs` guarded with `resolved.startsWith(this.#basePath)`, which is
+// a PREFIX test, not a containment test: `/tmp/base2` starts with `/tmp/base`.
+// The correct form (path.relative) already existed 120 lines up in the same
+// file — the two had simply drifted.
+//
+// HONEST SCOPE: the two sibling/root tests below pass against the OLD code too,
+// and that is stated rather than hidden. The bug was never reachable — prune is
+// only ever seeded from an already-validated in-base path and stops on the way
+// up the moment it reaches the root, so no caller could hand it an outside
+// path. It was a wrong guard, not a live traversal.
+//
+// They are kept as CHARACTERIZATION tests, not regression guards: they pin what
+// the guard must mean if a future call site ever seeds prune from somewhere new,
+// which is exactly the change that would turn the old prefix test into a real
+// bug. The test below them — a storage fault being raised rather than swallowed
+// — IS a behavioural regression guard, and does fail against the old code.
+
+test("FileSystemDataStore — CORE-1: a sibling dir sharing the base's name prefix is NOT treated as inside", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "rez-core1-"));
+  const base = path.join(parent, "base");
+  const sibling = path.join(parent, "base2"); // startsWith(base) === true
+  await fs.mkdir(base, { recursive: true });
+  await fs.mkdir(path.join(sibling, "empty-child"), { recursive: true });
+
+  try {
+    const store = new FileSystemDataStore({ basePath: base });
+    await store.put("a/b/c", { v: 1 });
+    await store.remove("a/b/c");
+
+    // The sibling must be untouched. Under the prefix test it read as "inside
+    // the store", making its empty directories eligible for pruning.
+    const siblingStillThere = await fs.stat(path.join(sibling, "empty-child"))
+      .then(() => true, () => false);
+    assert.equal(siblingStillThere, true,
+      "a directory that merely shares a name prefix is not inside the store");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("FileSystemDataStore — CORE-1: the basePath itself is never pruned", async () => {
+  await withTempStore(async (store, dir) => {
+    await store.put("solo", { v: 1 });
+    await store.remove("solo");
+    const baseStillThere = await fs.stat(dir).then(() => true, () => false);
+    assert.equal(baseStillThere, true, "pruning must stop at the store root, not delete it");
+  });
+});
+
+test("FileSystemDataStore — pruning still removes the empty parents it owns", async () => {
+  // The containment fix must not cost the behaviour: deep empty parents inside
+  // the base are still cleaned up.
+  await withTempStore(async (store, dir) => {
+    await store.put("x/y/z/leaf", { v: 1 });
+    await store.remove("x/y/z/leaf");
+    for (const rel of ["x/y/z", "x/y", "x"]) {
+      const gone = await fs.stat(path.join(dir, rel)).then(() => false, () => true);
+      assert.equal(gone, true, `${rel} should have been pruned`);
+    }
+  });
+});
+
+test("FileSystemDataStore — a storage fault during prune is raised, not swallowed", async () => {
+  // The old catch-all hid every failure, so a failing disk looked like a tidy
+  // one. Only the benign races (already gone, refilled) are absorbed now.
+  await withTempStore(async (store, dir) => {
+    await store.put("p/q/leaf", { v: 1 });
+    const realReaddir = fs.readdir;
+    fs.readdir = async (target, ...rest) => {
+      if (String(target).startsWith(path.join(dir, "p"))) {
+        const err = new Error("simulated I/O failure");
+        err.code = "EIO";
+        throw err;
+      }
+      return realReaddir(target, ...rest);
+    };
+    try {
+      await assert.rejects(() => store.remove("p/q/leaf"), /simulated I\/O failure/);
+    } finally {
+      fs.readdir = realReaddir;
+    }
+  });
+});
+
+test("FileSystemDataStore — a concurrently-removed dir during prune is absorbed", async () => {
+  await withTempStore(async (store, dir) => {
+    await store.put("r/s/leaf", { v: 1 });
+    const realRmdir = fs.rmdir;
+    fs.rmdir = async (target, ...rest) => {
+      if (String(target) === path.join(dir, "r", "s")) {
+        const err = new Error("gone");
+        err.code = "ENOENT";
+        throw err;
+      }
+      return realRmdir(target, ...rest);
+    };
+    try {
+      await store.remove("r/s/leaf"); // must not throw
+    } finally {
+      fs.rmdir = realRmdir;
+    }
+  });
+});
+
+test("FileSystemDataStore — CORE-1: list() rejects a traversing prefix BEFORE walking anything", async () => {
+  // `list` is public and used to join prefix segments raw, with none of the
+  // validation keys get. `../../..` built a path outside the store and
+  // #collectFiles walked it; the containment assert in #pathToKey only fired
+  // afterwards, once the traversal had already happened.
+  await withTempStore(async (store) => {
+    await assert.rejects(() => store.list("../.."), /prefix must not contain \. or \.\. segments/);
+    await assert.rejects(() => store.list("a/../../etc"), /prefix must not contain \. or \.\. segments/);
+    await assert.rejects(() => store.list("./x"), /prefix must not contain \. or \.\. segments/);
+  });
+});
+
+test("FileSystemDataStore — CORE-1: keys and prefixes now share one rule", async () => {
+  await withTempStore(async (store) => {
+    // The same string must not be safe as a key and a traversal as a prefix.
+    await assert.rejects(() => store.get("../escape"), /key must not contain \. or \.\. segments/);
+    await assert.rejects(() => store.list("../escape"), /prefix must not contain \. or \.\. segments/);
+  });
+});
+
+test("FileSystemDataStore — a trailing slash in a prefix still works", async () => {
+  // Established calling convention; the empty segment is inert. Tightening
+  // containment must not cost it.
+  await withTempStore(async (store) => {
+    await store.put("mbox/a/evt/1", "e1");
+    await store.put("mbox/a/evt/2", "e2");
+    const withSlash = await store.list("mbox/a/evt/");
+    const without = await store.list("mbox/a/evt");
+    assert.equal(withSlash.items.length, 2);
+    assert.deepEqual(withSlash.items.map((i) => i.key), without.items.map((i) => i.key));
+  });
+});
