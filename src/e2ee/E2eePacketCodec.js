@@ -1,8 +1,18 @@
 import { E2eeEncryptedPacketV1 } from "./E2eeEncryptedPacketV1.js";
 import { E2eeHandshakePacketV1 } from "./E2eeHandshakePacketV1.js";
+import { parseUntrustedJson, UNSAFE_JSON_KEY } from "../util/safeJson.js";
 
 const E2EE_MARKER = "e2ee";
 const HANDSHAKE_TYPE = E2eeHandshakePacketV1.wireType;
+
+/**
+ * Every non-handshake exit from `decryptIncoming`. Written once so the result
+ * shape cannot drift between the seven of them — the drift that produced CORE-4
+ * was one branch quietly returning a different set of fields from the others.
+ */
+function _nonHandshake(plaintextBytes, encrypted) {
+  return { plaintextBytes, encrypted, peerId: null, handshake: null, handshakeSignatureB64: null };
+}
 
 /**
  * Packet-level encrypt/decrypt codec using validated record types.
@@ -52,23 +62,36 @@ export class E2eePacketCodec {
    * Decrypt incoming packet bytes. Detects encrypted vs plaintext automatically.
    * Uses validated record types for parsing.
    *
+   * A handshake result carries BOTH halves of the envelope (CORE-4). The
+   * signature is not decoration: it is the only thing binding the handshake to
+   * `handshake.senderIdentitySigningPubKeyB64`, so a result that returned the
+   * handshake alone offered callers an unverifiable object and no way to notice
+   * — the shape invited the unsafe half of the split. `handshakeSignatureB64`
+   * is non-null exactly when `handshake` is; pass both to
+   * `verifyHandshakeEnvelope`.
+   *
    * @param {{ packetBytes: Uint8Array }} opts
-   * @returns {Promise<{ plaintextBytes: Uint8Array, encrypted: boolean, peerId: string|null, handshake: object|null }>}
+   * @returns {Promise<{ plaintextBytes: Uint8Array, encrypted: boolean, peerId: string|null, handshake: object|null, handshakeSignatureB64: string|null }>}
    */
   async decryptIncoming({ packetBytes } = {}) {
     if (!(packetBytes instanceof Uint8Array) || packetBytes.length === 0) {
-      return { plaintextBytes: packetBytes || new Uint8Array(0), encrypted: false, peerId: null, handshake: null };
+      return _nonHandshake(packetBytes || new Uint8Array(0), false);
     }
 
     let decoded;
     try {
-      decoded = JSON.parse(new TextDecoder().decode(packetBytes));
-    } catch {
-      return { plaintextBytes: packetBytes, encrypted: false, peerId: null, handshake: null };
+      decoded = parseUntrustedJson(new TextDecoder().decode(packetBytes), "e2ee packet");
+    } catch (err) {
+      // A packet that is not JSON is plaintext, and this codec's whole job is to
+      // tell those apart. A packet that IS JSON but carries a prototype-poisoning
+      // key is neither — it is hostile, and must not be handed onward as
+      // "plaintext" for the app layer to parse a second time.
+      if (err && err.code === UNSAFE_JSON_KEY) throw err;
+      return _nonHandshake(packetBytes, false);
     }
 
     if (!decoded || decoded[E2EE_MARKER] !== 1) {
-      return { plaintextBytes: packetBytes, encrypted: false, peerId: null, handshake: null };
+      return _nonHandshake(packetBytes, false);
     }
 
     // Handshake control message (plaintext)
@@ -79,6 +102,7 @@ export class E2eePacketCodec {
         encrypted: false,
         peerId: null,
         handshake: record.handshake,
+        handshakeSignatureB64: record.signatureB64,
       };
     }
 
@@ -88,7 +112,7 @@ export class E2eePacketCodec {
       try {
         const result = await this.#secureChannelManager.decryptPayload(record.payloadBytes);
         if (!result) {
-          return { plaintextBytes: packetBytes, encrypted: true, peerId: null, handshake: null };
+          return _nonHandshake(packetBytes, true);
         }
 
         return {
@@ -96,14 +120,15 @@ export class E2eePacketCodec {
           encrypted: true,
           peerId: result.peerId,
           handshake: null,
+          handshakeSignatureB64: null,
         };
       } catch {
         // Decryption failed — return as-is with encrypted flag
-        return { plaintextBytes: packetBytes, encrypted: true, peerId: null, handshake: null };
+        return _nonHandshake(packetBytes, true);
       }
     }
 
-    return { plaintextBytes: packetBytes, encrypted: false, peerId: null, handshake: null };
+    return _nonHandshake(packetBytes, false);
   }
 
   /**

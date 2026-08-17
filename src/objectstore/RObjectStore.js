@@ -1,5 +1,19 @@
 import { RDataStore } from "../storage/RDataStore.js";
 
+/**
+ * DEAD SURFACE — pending deletion (CORE-3).
+ *
+ * `CAPABILITY_MODEL.md` §9 says the `object:` namespace "is removed wholesale",
+ * and it is: nothing authorizes against it. This class is the leftover storage
+ * half, and it had exactly one importer in the whole polyrepo — the `rez-core`
+ * package barrel, which re-exported it to every consumer. So the surface the
+ * canonical spec called removed was, in fact, the package's public API.
+ *
+ * The barrel export is gone as of 2026-08-17; this file and its tests remain
+ * only because removing them needs a separate approval. Do NOT bind
+ * authorization, capabilities, or new callers to this class — it is scheduled
+ * to go, and the capability model it would imply no longer exists.
+ */
 export class RObjectStore {
   #store;
   #counter = 0;

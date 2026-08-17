@@ -108,3 +108,57 @@ test("ProfilePayloadV1.fromJSON rejects non-object", () => {
   assert.throws(() => ProfilePayloadV1.fromJSON(null), /requires object/);
   assert.throws(() => ProfilePayloadV1.fromJSON("string"), /requires object/);
 });
+
+// --- CORE-2: prototype-poisoning at the profile boundary -------------------
+// A profile is untrusted (any peer that can reach us can send one) AND
+// deliberately preserves unknown fields for forward compatibility. Those two
+// facts together are what made this reachable rather than theoretical.
+
+test("CORE-2: fromBytes refuses a profile carrying __proto__", () => {
+  const hostile = String.raw`{"kind":"rez.profile.v1","displayName":"Mallory","updatedAtMs":1710900000000,"__proto__":{"isAdmin":true}}`;
+  const bytes = new TextEncoder().encode(hostile);
+  assert.throws(() => ProfilePayloadV1.fromBytes(bytes), (err) => {
+    assert.equal(err.code, "UNSAFE_JSON_KEY");
+    assert.equal(err.key, "__proto__");
+    return true;
+  });
+});
+
+test("CORE-2: fromJSON and the constructor refuse constructor/prototype extras too", () => {
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    const json = JSON.parse(
+      `{"kind":"rez.profile.v1","displayName":"Mallory","updatedAtMs":1710900000000,${JSON.stringify(key)}:{"x":1}}`,
+    );
+    assert.throws(() => ProfilePayloadV1.fromJSON(json), (err) => err.code === "UNSAFE_JSON_KEY", key);
+
+    // And directly through the constructor, which is a separate entry point:
+    // fromJSON is not the only way in.
+    const direct = JSON.parse(`{"displayName":"Mallory","updatedAtMs":1710900000000,${JSON.stringify(key)}:{"x":1}}`);
+    assert.throws(() => new ProfilePayloadV1(direct), (err) => err.code === "UNSAFE_JSON_KEY", key);
+  }
+});
+
+test("CORE-2: extras carry no prototype, so nothing is inherited from a payload", () => {
+  const payload = new ProfilePayloadV1({ displayName: "Alice", updatedAtMs: 1000, nickname: "Al", theme: "dark" });
+  assert.equal(Object.getPrototypeOf(payload.extras), null);
+  assert.equal(payload.extras.nickname, "Al");
+  // The whole point of the null prototype: a merge of extras cannot pick up an
+  // inherited surprise, whatever route a future edit takes to build it.
+  assert.equal(Object.getPrototypeOf(Object.assign({}, payload.extras)), Object.prototype);
+});
+
+test("CORE-2: ordinary forward-compatible extras still round-trip untouched", () => {
+  // The guard must reject hostile keys WITHOUT narrowing the forward-compat
+  // contract that made extras exist in the first place.
+  const json = {
+    kind: "rez.profile.v1",
+    displayName: "Alice",
+    updatedAtMs: 1710900000000,
+    pronouns: "they/them",
+    links: [{ label: "site", url: "https://example.test" }],
+  };
+  const round = ProfilePayloadV1.fromJSON(json).toJSON();
+  assert.equal(round.pronouns, "they/them");
+  assert.deepEqual(round.links, [{ label: "site", url: "https://example.test" }]);
+  assert.equal(round.displayName, "Alice");
+});

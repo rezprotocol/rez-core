@@ -1,6 +1,7 @@
 # Consolidated Security Findings
 
-Original audit: 2026-06-07 · **Re-baselined: 2026-08-17** (rez-core#2)
+Original audit: 2026-06-07 · Re-baselined: 2026-08-17 (rez-core#2) ·
+**All core/SDK findings remediated: 2026-08-17**
 
 Scope: `rez-core`, `rez-sdk`, and `rez-chat` security audit findings. This document is a working remediation tracker, not a disclosure advisory.
 
@@ -14,6 +15,55 @@ Scope: `rez-core`, `rez-sdk`, and `rez-chat` security audit findings. This docum
 > **Suspected vulnerabilities do not belong here.** This is a tracker for findings
 > already known to the maintainers. Report new ones privately per
 > `rez-chat/SECURITY.md` — not as a public issue, and not by appending here.
+
+## Remediation pass, 2026-08-17
+
+Every remaining `rez-core` and `rez-sdk` finding is now closed. Two things this
+pass established that the re-baseline had not:
+
+**CORE-2 was live, not theoretical.** The re-baseline recorded it as "reachable
+by any peer that can send a profile" without demonstrating the mechanism. It is
+worse than that reads: `Object.assign` copies by `[[Set]]`, so it *walks*
+`Object.prototype.__proto__`'s setter. Against the pre-fix tree a profile
+carrying `"__proto__": {"isAdmin": true}` produced a `ProfilePayloadV1` whose
+`extras` object inherited from the sender's payload — `payload.extras.isAdmin`
+returned `true`. (Rest/spread is safe; it defines rather than sets. That
+difference is why the bug was invisible on inspection.) Contamination was
+per-object, not process-wide, so the severity is High-but-scoped.
+
+**One rule, one place.** CORE-2, SDK-1 and the e2ee packet boundary were the
+same defect at three doors. The check now lives once, in
+`rez-core/src/util/safeJson.js`, and all three call it — a second implementation
+would be a second thing to drift, which is how CORE-1's two halves ended up
+disagreeing in the first place.
+
+Everything else was mechanical by comparison: identity ownership (SDK-2), a
+public surface that exposed a raw-deposit verb next to the sealed seam (SDK-3),
+a method whose wire field claims an encryption it does not perform (SDK-4), and
+`Math.random()` where crypto randomness belongs (SDK-5).
+
+### What changed
+
+| Finding | Resolution |
+| --- | --- |
+| CORE-2 | Reject `__proto__`/`constructor`/`prototype` at every profile entry point; `extras` is null-prototype. |
+| CORE-3 | Object-store surface removed from the package barrel; two guardrails hold it out. |
+| CORE-4 | `decryptIncoming` returns `handshakeSignatureB64` alongside `handshake`; all branches share one result shape. |
+| SDK-1 | `FrameCodec` parses through the shared guard; hostile frames are distinguishable from malformed ones. |
+| SDK-2 | A remote `accountId` can never outrank or supply local identity; disagreement ends the session. |
+| SDK-3 | `RezClient.mailbox` is a frozen drain-only view — `deposit` is unreachable from application code. |
+| SDK-4 | `sendPayload` requires `preSealed: true`; it encrypts nothing and now says so at the call site. |
+| SDK-5 | Identifiers come from `util/randomId.js` (crypto-grade, throws rather than degrading). |
+
+### Still open elsewhere
+
+**`rez-node`'s `JsonFrameCodec` has SDK-1's defect verbatim**
+(`src/network/ws/JsonFrameCodec.js:26`) — same `JSON.parse`, same
+pass-`parsed.body`-through, and it is the *server* side, facing unauthenticated
+remotes. It is strictly more exposed than the SDK codec that prompted the
+finding. NOT fixed here: this tracker's scope is core/SDK, and the fix is one
+import of `parseUntrustedJson` plus a test. **Filed as its own item — do not
+consider SDK-1 fully discharged until it lands.**
 
 ## Re-baseline, 2026-08-17
 
@@ -37,20 +87,24 @@ fixing, not worth alarm.
 
 | Repo | Open | Open (not reachable) | Closed | Not applicable |
 | --- | ---: | ---: | ---: | ---: |
-| `rez-core` | 3 | 0 | 1 | 0 |
-| `rez-sdk` | 5 | 0 | 0 | 0 |
+| `rez-core` | 0 | 0 | 4 | 0 |
+| `rez-sdk` | 0 | 0 | 5 | 0 |
 | `rez-chat` | 0 | 0 | 2 | 2 |
 
-- **Fixed in this pass:** CORE-1.
+- **Fixed 2026-08-17, re-baseline pass:** CORE-1.
+- **Fixed 2026-08-17, remediation pass:** CORE-2, CORE-3, CORE-4, SDK-1 … SDK-5.
 - **Closed on re-check:** CHAT-1 (has regression cover), CHAT-4 (was already fixed).
 - **Not applicable to the shipped app:** CHAT-2, CHAT-3 — both are Electron-shell IPC
   findings, and the shipped Tauri shell exposes neither surface.
-- **Still open, unchanged:** CORE-2, CORE-3, CORE-4, SDK-1 … SDK-5.
 
-None of the still-open findings is an alpha blocker: none is remotely reachable by
-an unauthenticated party, and the highest-severity two (SDK-1, SDK-2) are hardening
-of a trust boundary rather than a known bypass. That is an assessment, not a
-dismissal — see each finding.
+Nothing on this tracker is open. The one live carry-over is a NEW item found while
+fixing SDK-1 — rez-node's server-side frame codec has the same defect and is more
+exposed. See "Still open elsewhere" above.
+
+One earlier assessment did not survive contact: the re-baseline called SDK-1 and
+SDK-2 "hardening of a trust boundary rather than a known bypass", and grouped
+CORE-2 with them. CORE-2 was a working prototype injection, demonstrated against
+the pre-fix tree. The assessment was too generous.
 
 ## Canonical Specs Checked
 
@@ -108,13 +162,26 @@ Centralize key/prefix validation. Resolve every candidate path and require `path
 
 ### CORE-2: `ProfilePayloadV1` preserves untrusted extras with prototype-mutable objects
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Medium — severity was understated)
 
-Re-baselined 2026-08-17 — UNCHANGED, still open. `ProfilePayloadV1.js:46` still does
-`Object.assign({}, rest)` and `:76` still parses untrusted bytes with bare
-`JSON.parse`. Reachable by any peer that can send a profile.
+Fixed. This one was demonstrated, not inferred: against the pre-fix tree a profile
+carrying `"__proto__": {"isAdmin": true}` was accepted, and the resulting
+`payload.extras.isAdmin` returned `true` — the extras bag inherited from the
+sender's payload. `Object.assign` copies by `[[Set]]`, which walks
+`Object.prototype.__proto__`'s setter; rest/spread does not, which is why the two
+adjacent lines behaved differently and the bug read as safe.
 
-Severity: Medium
+Both entry points now refuse the payload (`fromJSON` and the constructor, since
+neither is reachable only through the other), `fromBytes` parses via
+`parseUntrustedJson`, and `extras` is built on a null prototype so nothing can be
+inherited even by a future route. Rejecting rather than stripping matters here:
+extras exists FOR forward compatibility, so silently dropping a field would hand
+the caller a profile that differs from what the peer sent.
+
+Cover: 4 cases in `rez-core/test/objects.profile-payload.test.js`, including one
+proving ordinary forward-compatible extras still round-trip untouched.
+
+Severity: High (was recorded Medium; per-object contamination, not process-wide)
 
 Evidence:
 - `rez-core/src/objects/profile/ProfilePayloadV1.js:46` stores `extras` via `Object.assign({}, rest)`.
@@ -129,13 +196,26 @@ Reject dangerous keys at parse/construction boundaries or clone into `Object.cre
 
 ### CORE-3: Stale object/capability namespace surfaces remain after capability rework
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Medium)
 
-Re-baselined 2026-08-17 — UNCHANGED, and now with sharper evidence: the split-brain
-is confirmed in both directions. `CAPABILITY_MODEL.md:162` still says the `object:`
-namespace "is removed wholesale", while `rez-core/src/index.js:31` still does
-`export * from "./objectstore/index.js"` — so the surface the spec calls removed is
-exported from the package root. Documentation drift, not an exploit.
+Fixed by making the code match the canonical spec rather than the reverse. The
+barrel export is gone, so the surface `CAPABILITY_MODEL.md` §9 calls "removed
+wholesale" is no longer rez-core's public API.
+
+The finding read as documentation drift; the sharper framing is that
+`export * from "./objectstore/index.js"` was the module's ONLY importer in the
+entire polyrepo. The dead namespace was not merely mentioned in a stale doc — it
+was published to every consumer, which is what would have let a future caller bind
+authorization to semantics that no longer exist.
+
+Two guardrails hold it shut, because prose could not: one asserts `RObjectStore`
+is absent from the package namespace, the other that nothing under `src/` imports
+the module. Cover: `rez-core/test/architecture.no-object-namespace.test.js`.
+
+**Residual:** `src/objectstore/` and its test file still exist on disk, marked
+DEAD SURFACE — pending deletion, which needs a separate approval. They are
+unreachable from the public API and unimported; deleting them is tidying, not
+remediation.
 
 Severity: Medium
 
@@ -152,12 +232,23 @@ Either remove the stale object-store surface from public exports or update the c
 
 ### CORE-4: `E2eePacketCodec.decryptIncoming` drops handshake signature context
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Medium)
 
-Re-baselined 2026-08-17 — UNCHANGED. `E2eePacketCodec.js:81` still returns
-`handshake: record.handshake` with no `signatureB64`. Note the live E2EE path does
-not use this codec for handshakes (see `reference_rezsdk_e2ee_stale_shims`), so this
-is an API that invites an unsafe split rather than a live one.
+Fixed. `decryptIncoming` now returns `handshakeSignatureB64` alongside `handshake`,
+so a caller holding a handshake also holds the only thing that authenticates it.
+
+The more durable fix is structural: the seven non-handshake exits from that method
+were each hand-writing their own result object, and the finding is precisely what
+happens when one of them drifts. They now share a single `_nonHandshake` helper,
+and a test pins the key set of EVERY branch rather than only the one that was
+wrong. An unsigned handshake packet is still rejected outright by the record, so
+"handshake present, signature absent" is not a state the API can produce.
+
+Assessment unchanged and still worth stating: the live E2EE path does not use this
+codec for handshakes, so this was an unsafe-by-invitation API rather than a live
+break.
+
+Cover: `rez-core/test/e2ee.packet-codec.test.js`.
 
 Severity: Medium
 
@@ -177,11 +268,25 @@ Return the full validated handshake packet record or include both `handshake` an
 
 ### SDK-1: `FrameCodec` forwards untrusted JSON bodies without prototype hardening
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / High) — *but see the rez-node twin*
 
-Re-baselined 2026-08-17 — UNCHANGED. `FrameCodec.js:17` still `JSON.parse`s raw
-frames and `:37` still returns `parsed.body` directly. Highest-value remaining item:
-it is the trust boundary every remote frame crosses.
+Fixed. `decodeFrame` parses through the shared `parseUntrustedJson` guard, so a
+frame body carrying `__proto__`, `constructor`, or `prototype` is refused at the
+boundary instead of being handed to every handler in the SDK.
+
+Two distinguishable refusals, deliberately: `BAD_FRAME` means "not JSON" (a broken
+or mismatched sender) and `UNSAFE_JSON_KEY` means "JSON built to poison us" (a
+hostile one). Flattening them would send an operator hunting an encoding bug while
+under attack. Both are `retryable: false` — resending identical bytes cannot help
+either way. `WsTransport`'s existing bad-frame rate limiter treats both the same,
+so a hostile peer still gets disconnected after ten.
+
+**The same defect exists in `rez-node/src/network/ws/JsonFrameCodec.js` and is NOT
+fixed.** That codec is the server side, facing unauthenticated remotes, which makes
+it the more exposed of the two. Tracked separately; SDK-1 is closed for the SDK, not
+for the protocol.
+
+Cover: `rez-sdk/test/security.findings-remediation.test.js`.
 
 Severity: High
 
@@ -198,11 +303,34 @@ Parse into hardened/plain-data records. Strip or reject `__proto__`, `constructo
 
 ### SDK-2: Session identity still has account/inbox split-brain
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / High)
 
-Re-baselined 2026-08-17 — UNCHANGED. `rez-sdk/src/protocol/index.js:61` still
-resolves `accountId` from `sessionInfo.accountId` with a fallback and returns it as
-session identity.
+Fixed. The defect was an ownership inversion, and the `||` chain is what encoded
+it: reading `sessionInfo.accountId` FIRST made a remote claim outrank local truth.
+A remote value is now never a source, only a cross-check, and it fails in exactly
+two ways — it disagrees with the account we authenticated as, or it appears when
+we hold no local account id at all (the adoption case the finding is really about).
+Both end the session.
+
+One correction to the recommended fix: "the SDK still has two notions of identity"
+turned out to be understated — `resolveSessionIdentity` is also called by rez-chat
+on its OWN runtime client, where `accountId` is the app echoing back the account it
+just connected as. Two different session descriptors wearing one shape. So the
+first implementation, which refused any `accountId` outright, was wrong: it broke a
+legitimate caller to defend against a field that caller owns. Refusing only on
+DISAGREEMENT closes the attack and leaves local truth alone. Four rez-chat tests
+caught this.
+
+`deviceId` gets the same treatment for the same reason — `capabilities.deviceId` is
+an echo of what we sent in `session.hello`, so a mismatch means the session is not
+the one we opened.
+
+Worth recording: the rez-chat test fixture that failed had been modelling a
+`session.ready` carrying `accountId`. No node ever sends one — `SessionReadyEvent`
+is `serverTime` + `capabilities`, full stop. The fixture had been teaching the code
+a wire shape that does not exist, which is part of why the inversion survived.
+
+Cover: `rez-sdk/test/security.findings-remediation.test.js`.
 
 Severity: High
 
@@ -220,11 +348,35 @@ Make the public session result inbox-first. Treat account id as local SDK/app me
 
 ### SDK-3: Public client surface exposes low-level capabilities directly
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Medium)
 
-Re-baselined 2026-08-17 — UNCHANGED. `RezClient.js` still exposes `mailbox` (:601),
-`durableRecords` (:605), `node` (:609) and `mesh` (:638) as public getters. Line
-numbers moved; the surface did not.
+Fixed, though not the way the finding proposed — and the difference is the point.
+
+"Keep low-level capabilities internal" is not available: rez-chat's server services
+legitimately need `durableRecords` (signed record publication), `node` (status) and
+`accountOutbox` (authority propagation) across roughly a dozen call sites. Those are
+the app-server API, not accidental exposure.
+
+What WAS wrong is narrower and worse: `mailbox.deposit` sat on the public client at
+the same level as the sealed `mesh.dispatch` seam, with nothing marking the
+difference. It takes a `ciphertextB64` and encodes whatever bytes it is given, so an
+app holding it can deposit plaintext believing the SDK sealed something.
+
+Auditing every caller settled it: `mailbox.deposit` has exactly ONE in the whole
+polyrepo — `MeshCapability.#dispatchToInbox`, which seals first — and rez-chat uses
+only the drain half (`list`/`fetch`/`ack`/`cursorAck`). So `RezClient.mailbox` is
+now a frozen drain-only view and `deposit` is simply unreachable from application
+code, while `MeshCapability` holds the full capability directly. Structural, not
+conventional: an app cannot misuse a method it was never handed.
+
+A guardrail covers the silent-omission failure mode — adding a `MailboxCapability`
+method without classifying it as drain-side or producer-side fails the suite,
+rather than leaving apps quietly unable to reach it.
+
+The remaining privileged getters are documented as such on the class. **Residual,
+stated plainly:** they are still low-level and still app-reachable. That is a
+deliberate API-shape decision, not an oversight — what has been removed is the
+ability to put UNSEALED bytes on the wire.
 
 Severity: Medium
 
@@ -243,11 +395,26 @@ Keep low-level capabilities internal or explicitly mark them as privileged/advan
 
 ### SDK-4: `sendPayload` remains a plaintext footgun
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Medium)
 
-Re-baselined 2026-08-17 — UNCHANGED. `RezClient.js:295` still exposes `sendPayload`,
-which base64s caller bytes into a field named `ciphertextB64`. The safer
-`sealForPeer` (:339) exists alongside it, which is precisely the confusion.
+Fixed by making the caller state the assumption instead of holding it silently:
+`sendPayload` now requires `preSealed: true` and throws without it, with a message
+that says the call encrypts nothing and points at `sealForPeer` + `mesh.dispatch`.
+
+Neither of the recommended fixes was quite right. Renaming is off the table — the
+frozen delivery-transports plan (v6, DT-003) refers to `RezClient.sendPayload` by
+name and Phase 1 is open against it. "Require a sealed packet type" cannot be
+enforced: bytes are bytes, and the SDK has no way to tell sealed ones from
+plaintext. The lie is also unfixable at the wire level, because `ciphertextB64` is
+the MAILBOX_DEPOSIT contract's field name, not this method's invention.
+
+So the fix is at the only layer that can carry it: the call site. `preSealed`
+enables no behaviour and is not a feature flag — its single job is to make the
+wrong assumption impossible to hold in silence. Strict `=== true`, so a truthy
+string or `1` is data passing through rather than someone asserting.
+
+This composes with, and does not replace, the existing no-new-callers freeze
+(`architecture.carrier-boundary.test.js`). Production callers: still zero.
 
 Severity: Medium
 
@@ -264,16 +431,19 @@ Rename or deprecate `sendPayload`, or require a sealed/encrypted packet type. Ro
 
 ### SDK-5: Non-crypto randomness is used for IDs/keys
 
-Status: Open
+Status: **CLOSED 2026-08-17** (was Open / Low-Medium)
 
-Re-baselined 2026-08-17 — UNCHANGED in substance, narrowed in scope. `Math.random()`
-remains in `UplinkPoolClient.js:29` (device id — the one that matters, it
-participates in session identity metadata), `RezClient.js:297`,
-`MeshCapability.js:70` and `SubscriptionCapability.js:41`.
+Fixed. All four identifier sites draw from `rez-sdk/src/util/randomId.js`, which
+uses Web Crypto and **throws** when it is unavailable rather than degrading. The
+old device-id shape was the exact anti-pattern: `crypto.randomUUID?.() ?? Math.random()`
+silently produced weaker ids on precisely the runtime where you would most want to
+know. A runtime with no Web Crypto cannot run this SDK's actual cryptography
+either, so failing loudly costs nothing real.
 
-One call site should be struck from this finding: `ConnectionStateMachine.js:112`
-uses `Math.random()` for **reconnect jitter**, which is not an identifier and where
-non-crypto randomness is correct.
+The jitter call site is struck from the finding as the re-baseline recommended, and
+is now the sole entry on a guardrail allowlist that fails the suite on any other
+`Math.random()` under `src/` — including a check that the exemption still points at
+a site that exists, so it cannot rot into a blanket pass.
 
 Severity: Low / Medium
 
@@ -394,11 +564,13 @@ Add a regression test with at least two direct threads where a malformed/no-thre
 
 ## Verification Notes
 
-**As of the 2026-08-17 re-baseline** (all suites re-run, not quoted from notes):
+**As of the 2026-08-17 remediation pass** (all suites re-run, not quoted from notes):
 
-- `rez-core` 559 pass / 0 fail · `rez-sdk` 439 / 0 · `rez-node` 1261 / 0 (3 skip) ·
-  `rez-chat` 913 / 0 (3 skip) · `e2e-local-mesh` green · `e2e.internet` 8/8 against
-  the live relay mesh.
+- `rez-core` 577 pass / 0 fail · `rez-sdk` 451 / 0 · `rez-node` 1261 / 0 (3 skip) ·
+  `rez-chat` 913 / 0 (3 skip) · `rez-ui` 12 / 0 · `e2e-local-mesh` 8 pass / 0 fail
+  (3 pg-skip) against real transports.
+- Earlier at the re-baseline: `rez-core` 559 · `rez-sdk` 439 · `e2e.internet` 8/8
+  against the live relay mesh.
 - The June note about `server.inbound-pipeline.ordering.e2e.test.js:204` failing is
   **stale** — that suite is green. It was test-alignment drift, as suspected, and has
   since been resolved.
@@ -409,23 +581,31 @@ Still true, and still worth fixing:
 - Optional chaining remains in `rez-chat/test/**` although repository policy forbids
   it everywhere. Source is clean; the tests are not.
 
-## Suggested Remediation Order
+## Remediation Order — DISCHARGED 2026-08-17
 
-Re-ordered 2026-08-17 for what is actually left. `CHAT-1` and `CORE-1` are done, and
-`CHAT-2`/`CHAT-3` dropped off the shipped path with the move to Tauri.
+The queue below is kept as a record of what was prioritised and why, not as work
+outstanding. Every item on it is closed.
 
-1. **`SDK-1`** — the frame codec is the trust boundary every remote frame crosses, and
-   it still hands un-hardened parsed JSON to handlers. Highest blast radius left.
-2. **`SDK-2`** — identity semantics. Worth doing before more app code grows around the
-   account/inbox split, because the cost rises with every caller.
-3. **`CORE-2`** — the other untrusted-JSON boundary, reachable by any peer that can
-   send a profile. Same class as SDK-1 and probably the same fix.
-4. **`SDK-4`**, then **`SDK-5`** — a plaintext footgun named `ciphertextB64`, then
-   non-crypto randomness (the `UplinkPoolClient` device id is the one that matters;
-   strike the jitter call site from the finding).
-5. **`CORE-3`**, **`CORE-4`** — ownership/API drift rather than live exposure. Cheap,
-   and each removes a way for a future caller to do the wrong thing by default.
+1. ~~**`SDK-1`**~~ — done. Prediction held: it was the same fix as CORE-2, and both
+   now call one shared guard in `rez-core`. What the ordering missed is that the
+   *node's* frame codec is the same code and more exposed; see "Still open
+   elsewhere".
+2. ~~**`SDK-2`**~~ — done, and the reasoning ("worth doing before more app code
+   grows around the split") was right for the wrong reason: app code had ALREADY
+   grown around it, which is why the first, stricter fix broke rez-chat.
+3. ~~**`CORE-2`**~~ — done. Predicted "same class as SDK-1 and probably the same
+   fix"; that was correct. Its severity was not — see the finding.
+4. ~~**`SDK-4`**, **`SDK-5`**~~ — done. The jitter call site was struck from SDK-5
+   as planned and is now the one entry on a guardrail allowlist.
+5. ~~**`CORE-3`**, **`CORE-4`**~~ — done. Both were cheaper than the queue implied,
+   and CORE-3 was more than "ownership drift": the dead namespace was being
+   published from the package root.
 
 `CHAT-2` and `CHAT-3` stay on the tracker with NOT-APPLICABLE status rather than being
 deleted: the Electron tree is still in the repo with working `desktop:pack:*` scripts,
 so reviving that shell revives both findings.
+
+### Next
+
+One item, and it is new rather than left over: **`rez-node`'s `JsonFrameCodec`**
+carries SDK-1's defect on the server side, facing unauthenticated remotes.
