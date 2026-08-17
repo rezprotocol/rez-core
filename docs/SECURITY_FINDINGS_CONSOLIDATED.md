@@ -3,7 +3,8 @@
 Original audit: 2026-06-07 · Re-baselined: 2026-08-17 (rez-core#2) ·
 **All core/SDK findings remediated: 2026-08-17**
 
-Scope: `rez-core`, `rez-sdk`, and `rez-chat` security audit findings. This document is a working remediation tracker, not a disclosure advisory.
+Scope: `rez-core`, `rez-sdk`, and `rez-chat` security audit findings, plus the
+one `rez-node` defect this remediation surfaced. This document is a working remediation tracker, not a disclosure advisory.
 
 > **Moved 2026-08-17.** This lived at the polyrepo root, which is not a git repo — so
 > the tracker for three repos' security findings was itself unversioned, unbacked-up,
@@ -37,6 +38,11 @@ same defect at three doors. The check now lives once, in
 would be a second thing to drift, which is how CORE-1's two halves ended up
 disagreeing in the first place.
 
+The pass also turned up a finding of its own. SDK-1's fix required reading the
+codec's twin in `rez-node`, which had the identical defect on the unauthenticated
+server side — see NODE-1. Auditing a boundary means auditing every door onto it,
+not the one the ticket names.
+
 Everything else was mechanical by comparison: identity ownership (SDK-2), a
 public surface that exposed a raw-deposit verb next to the sealed seam (SDK-3),
 a method whose wire field claims an encryption it does not perform (SDK-4), and
@@ -54,16 +60,31 @@ a method whose wire field claims an encryption it does not perform (SDK-4), and
 | SDK-3 | `RezClient.mailbox` is a frozen drain-only view — `deposit` is unreachable from application code. |
 | SDK-4 | `sendPayload` requires `preSealed: true`; it encrypts nothing and now says so at the call site. |
 | SDK-5 | Identifiers come from `util/randomId.js` (crypto-grade, throws rather than degrading). |
+| NODE-1 | The server-side frame codec gets the same guard; hostile frames are logged distinctly. |
 
-### Still open elsewhere
+### NODE-1: the server-side twin of SDK-1
 
-**`rez-node`'s `JsonFrameCodec` has SDK-1's defect verbatim**
-(`src/network/ws/JsonFrameCodec.js:26`) — same `JSON.parse`, same
-pass-`parsed.body`-through, and it is the *server* side, facing unauthenticated
-remotes. It is strictly more exposed than the SDK codec that prompted the
-finding. NOT fixed here: this tracker's scope is core/SDK, and the fix is one
-import of `parseUntrustedJson` plus a test. **Filed as its own item — do not
-consider SDK-1 fully discharged until it lands.**
+Status: **CLOSED 2026-08-17** · Severity: High
+
+Found while fixing SDK-1, not part of the original audit.
+`rez-node/src/network/ws/JsonFrameCodec.js` was the SDK frame codec's near-twin —
+same `JSON.parse`, same pass-`parsed.body`-through to the handler layer — and it
+is the *server* side. `decodeFrame` runs BEFORE session authentication, so anyone
+able to open a socket reached it. Strictly more exposed than the finding that
+led to it.
+
+Fixed the same way, with the same shared guard, so the two files cannot drift
+apart again — which they already had, in the sense that fixing one alone would
+have left the worse half open. The peer is told "Invalid JSON" either way (an
+attacker learns nothing from probing), but `GatewaySession` now logs a hostile
+frame distinctly instead of silently, since a poison attempt and an encoding bug
+send an operator to entirely different places.
+
+The log line carries `unsafeKey` — one of three constants — and deliberately NOT
+the error path, which is assembled from attacker-chosen key names and has no
+business being interpolated into a log. A test pins that.
+
+Cover: `rez-node/test/network.json-frame-codec.test.js`.
 
 ## Re-baseline, 2026-08-17
 
@@ -97,9 +118,8 @@ fixing, not worth alarm.
 - **Not applicable to the shipped app:** CHAT-2, CHAT-3 — both are Electron-shell IPC
   findings, and the shipped Tauri shell exposes neither surface.
 
-Nothing on this tracker is open. The one live carry-over is a NEW item found while
-fixing SDK-1 — rez-node's server-side frame codec has the same defect and is more
-exposed. See "Still open elsewhere" above.
+Nothing on this tracker is open. One item was ADDED by the remediation rather
+than left over — NODE-1, the server-side twin of SDK-1 — and it is closed too.
 
 One earlier assessment did not survive contact: the re-baseline called SDK-1 and
 SDK-2 "hardening of a trust boundary rather than a known bypass", and grouped
@@ -212,10 +232,11 @@ Two guardrails hold it shut, because prose could not: one asserts `RObjectStore`
 is absent from the package namespace, the other that nothing under `src/` imports
 the module. Cover: `rez-core/test/architecture.no-object-namespace.test.js`.
 
-**Residual:** `src/objectstore/` and its test file still exist on disk, marked
-DEAD SURFACE — pending deletion, which needs a separate approval. They are
-unreachable from the public API and unimported; deleting them is tidying, not
-remediation.
+`src/objectstore/` and its test file are **deleted** (2026-08-17), not merely
+unexported: a dead module with fifteen passing tests looks maintained, which is
+the condition that invites a caller. Three guardrails now cover the three ways it
+could return — the export without the files, the files without the export, or an
+internal importer of either.
 
 Severity: Medium
 
@@ -566,7 +587,8 @@ Add a regression test with at least two direct threads where a malformed/no-thre
 
 **As of the 2026-08-17 remediation pass** (all suites re-run, not quoted from notes):
 
-- `rez-core` 577 pass / 0 fail · `rez-sdk` 451 / 0 · `rez-node` 1261 / 0 (3 skip) ·
+- `rez-core` 564 pass / 0 fail (577 before deleting the 15 dead object-store
+  tests) · `rez-sdk` 451 / 0 · `rez-node` 1266 / 0 (3 skip) ·
   `rez-chat` 913 / 0 (3 skip) · `rez-ui` 12 / 0 · `e2e-local-mesh` 8 pass / 0 fail
   (3 pg-skip) against real transports.
 - Earlier at the re-baseline: `rez-core` 559 · `rez-sdk` 439 · `e2e.internet` 8/8
@@ -588,8 +610,9 @@ outstanding. Every item on it is closed.
 
 1. ~~**`SDK-1`**~~ — done. Prediction held: it was the same fix as CORE-2, and both
    now call one shared guard in `rez-core`. What the ordering missed is that the
-   *node's* frame codec is the same code and more exposed; see "Still open
-   elsewhere".
+   *node's* frame codec is the same code and more exposed — filed and fixed as
+   NODE-1. Ranking a boundary by blast radius is only as good as the inventory of
+   doors onto it.
 2. ~~**`SDK-2`**~~ — done, and the reasoning ("worth doing before more app code
    grows around the split") was right for the wrong reason: app code had ALREADY
    grown around it, which is why the first, stricter fix broke rez-chat.
@@ -607,5 +630,5 @@ so reviving that shell revives both findings.
 
 ### Next
 
-One item, and it is new rather than left over: **`rez-node`'s `JsonFrameCodec`**
-carries SDK-1's defect on the server side, facing unauthenticated remotes.
+Nothing. Every finding on this tracker — the original twelve plus NODE-1, which
+the remediation itself surfaced — is closed.

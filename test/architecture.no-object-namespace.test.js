@@ -11,8 +11,11 @@ import * as core from "../src/index.js";
 // re-exported from the package barrel, so the surface the canonical spec called
 // removed was in fact rez-core's public API.
 //
-// That is the split-brain the finding names, and prose cannot hold it shut —
-// one `export *` line put it back. This test is the thing that holds it shut.
+// The module is now deleted, not merely unexported. Three checks rather than
+// one, because each would survive the others failing: the export could come
+// back without the files, the files could come back without the export, and an
+// internal importer could appear without either being noticed. Prose cannot
+// hold any of that shut — one `export *` line put it back last time.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(__dirname, "..");
@@ -28,15 +31,24 @@ test("CORE-3: the object-store surface is not part of rez-core's public API", ()
   );
 });
 
+test("CORE-3: the object-store module is gone from the tree", () => {
+  assert.equal(
+    fs.existsSync(path.join(CORE_ROOT, "src", "objectstore")),
+    false,
+    "src/objectstore/ is back. The capability model says this namespace is removed "
+    + "wholesale; a dead module with passing tests looks maintained and invites a "
+    + "caller. If it is being rebuilt, rebuild the capability semantics with it.",
+  );
+});
+
 test("CORE-3: nothing inside src/ imports the object-store module", () => {
-  // The barrel is the only route that ever existed, but the rule is about the
-  // module having no live consumers — not about one particular line.
+  // Deleting the files is not the same as nobody reaching for the name — a
+  // re-added module with a live importer is the state this actually guards.
   const violations = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === "objectstore") continue; // its own internal imports are not consumers
         walk(full);
       } else if (entry.isFile() && full.endsWith(".js")) {
         const text = fs.readFileSync(full, "utf8");
