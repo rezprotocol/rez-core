@@ -34,6 +34,13 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   INBOX_SET_DEPOSIT_POLICY: "inbox.setDepositPolicy",
   INBOX_SET_DEPOSIT_POLICY_RES: "inbox.setDepositPolicy.res",
 
+  // Portable inbox lease L1 (plans/PORTABLE_INBOX_LEASE_SPEC.md §4): the
+  // account-held kill switch. The TerminalInboxClose record AUTHORIZES
+  // ITSELF (close-key signature); the carrying session's principal
+  // contributes no authority to the operation.
+  INBOX_CLOSE: "inbox.close",
+  INBOX_CLOSE_RES: "inbox.close.res",
+
   // --- per-device home binding (S2.5 Slice 4) ---
   // device.bind: present a proven device key (DeviceRegistrationV1 +
   //   DeviceInboxBindingV1) so the durable home binds a device cursor to the
@@ -89,12 +96,11 @@ export const REZ_CONTRACT_TYPES = Object.freeze({
   ACCOUNT_OUTBOX_LEASE_COMPLETE: "account.outbox.lease.complete",
   ACCOUNT_OUTBOX_LEASE_COMPLETE_RES: "account.outbox.lease.complete.res",
 
-  // --- channel operations (5, stub) ---
-  CHANNEL_OPEN: "channel.open",
-  CHANNEL_OPEN_RES: "channel.open.res",
-  CHANNEL_CLOSE: "channel.close",
-  CHANNEL_CLOSE_RES: "channel.close.res",
-  CHANNEL_SIGNAL: "channel.signal",
+  // channel.* wire ops RETIRED (SESSION_AUTH_V5 slice 1): the never-implemented
+  // stub surface was deleted rather than kept as an authenticated NOT_IMPLEMENTED
+  // precedent. A future Channel design re-adds its ops here alongside a real
+  // handler with a declared AuthorityRequirement (same retirement pattern as the
+  // legacy device.revoke).
 
   // --- node operations ---
   NODE_STATUS: "node.status",

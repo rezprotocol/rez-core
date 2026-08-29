@@ -194,14 +194,26 @@ function serializeDelegatedPayload(payload) {
     signPublicKeyB64,
   );
 
-  // P1#2 L3.5: the device-link ceremony pre-registered a SPECIFIC home inbox (the one this
-  // device device-signed a binding for + the home's device.add recorded). Persist it so the
-  // delegated device claims exactly that inbox on boot, never a freshly-minted one. Optional
-  // (legacy delegated keystores predate it → null); validated to the ONE canonical inbox
-  // shape (SSOT: util/inboxId) when set.
-  const inboxId = src.inboxId === undefined || src.inboxId === null
+  // P1#2 L3.5 / R3 (P1.3b, rez-chat plans/MOBILE_PLATFORM_INTEGRATION_PLAN.md):
+  // the device-link ceremony pre-registered a SPECIFIC home inbox (the one this
+  // device device-signed a binding for + the home's device.add recorded). That
+  // address is the BOOTSTRAP inbox — the enrollment/activation route, not
+  // necessarily the device's lifetime delivery address — so the payload names
+  // it honestly: new payloads write `bootstrapInboxId` ONLY; a legacy payload's
+  // generically-named `inboxId` deserializes AS bootstrapInboxId (same bytes,
+  // honest name). A payload carrying BOTH names with different values is
+  // ambiguous authorship — fail loud, never pick one. Optional (legacy
+  // delegated keystores predate the field entirely → null); validated to the
+  // ONE canonical inbox shape (SSOT: util/inboxId) when set.
+  const hasNewName = src.bootstrapInboxId !== undefined && src.bootstrapInboxId !== null;
+  const hasLegacyName = src.inboxId !== undefined && src.inboxId !== null;
+  if (hasNewName && hasLegacyName && src.bootstrapInboxId !== src.inboxId) {
+    throw new Error("Delegated keystore payload carries both bootstrapInboxId and a DIFFERENT legacy inboxId — refusing to guess");
+  }
+  const rawBootstrapInboxId = hasNewName ? src.bootstrapInboxId : (hasLegacyName ? src.inboxId : null);
+  const bootstrapInboxId = rawBootstrapInboxId === null
     ? null
-    : requireCanonicalInboxId(src.inboxId, "Delegated keystore inboxId");
+    : requireCanonicalInboxId(rawBootstrapInboxId, "Delegated keystore bootstrapInboxId");
 
   return {
     keystoreVersion,
@@ -216,7 +228,7 @@ function serializeDelegatedPayload(payload) {
     deviceKey,
     certChain,
     cachedDeviceSet,
-    inboxId,
+    bootstrapInboxId,
     profileName: normalizeProfileName(src.profileName),
   };
 }
@@ -579,6 +591,13 @@ export async function createDelegatedKeystoreAccount({
   if (delegation.mnemonic !== undefined || delegation.seed !== undefined) {
     throw new Error("Delegated keystore must not contain seed material");
   }
+  // R3: the create API takes the honest field name ONLY. Accepting the legacy
+  // spelling here would silently seal an envelope with NO bootstrap inbox —
+  // the caller believed it persisted one. Legacy acceptance exists solely on
+  // the PARSE path (stored envelopes).
+  if (delegation.inboxId !== undefined) {
+    throw new Error("createDelegatedKeystoreAccount: the field is delegation.bootstrapInboxId (R3) — refusing the legacy inboxId spelling");
+  }
 
   const accountSignPublicKeyB64 = String(delegation.accountSignPublicKeyB64 || "").trim();
   if (!accountSignPublicKeyB64) {
@@ -615,8 +634,10 @@ export async function createDelegatedKeystoreAccount({
     deviceKey,
     certChain: delegation.certChain,
     cachedDeviceSet: delegation.cachedDeviceSet === undefined ? null : delegation.cachedDeviceSet,
-    // P1#2 L3.5: the ceremony's pre-registered home inbox (optional; validated in serialize).
-    inboxId: delegation.inboxId === undefined ? null : delegation.inboxId,
+    // P1#2 L3.5 / R3: the ceremony's pre-registered home inbox — the BOOTSTRAP
+    // inbox (optional; validated in serialize). New envelopes carry the honest
+    // name only.
+    bootstrapInboxId: delegation.bootstrapInboxId === undefined ? null : delegation.bootstrapInboxId,
     profileName,
   });
 
@@ -681,9 +702,11 @@ export async function unlockKeystoreAccount({
       },
       certChain: delegated.certChain,
       cachedDeviceSet: delegated.cachedDeviceSet,
-      // P1#2 L3.5: the ceremony's pre-registered home inbox (null for legacy delegated
-      // keystores) — the delegated device claims exactly this inbox on boot.
-      inboxId: delegated.inboxId,
+      // P1#2 L3.5 / R3: the ceremony's pre-registered BOOTSTRAP inbox (null for
+      // legacy delegated keystores). It is the enrollment/activation route —
+      // NEVER a fallback runtime primary; the steady-state inbox is owned by
+      // the InboxClaimStore's portable primary (rez-chat P1.3b).
+      bootstrapInboxId: delegated.bootstrapInboxId,
       profileName: delegated.profileName,
       keystoreMeta: {
         version: envelope.version,

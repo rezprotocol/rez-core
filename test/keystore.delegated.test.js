@@ -223,26 +223,65 @@ test("create + unlock round-trip: seedless payload, C accepted not minted, all d
   assert.equal(stored.mnemonic, undefined);
 });
 
-test("P1#2 L3.5: the delegated keystore persists + surfaces the ceremony inbox; legacy → null; noncanonical rejected", async () => {
-  const inboxId = "inbox:" + "b".repeat(24);
+test("P1#2 L3.5 / R3: the delegated keystore persists + surfaces the ceremony BOOTSTRAP inbox; legacy → null; noncanonical rejected", async () => {
+  const bootstrapInboxId = "inbox:" + "b".repeat(24);
   const withInbox = makeDelegation();
   const store = makeStore("inbox-persist");
-  await createDelegated(store, { ...withInbox.delegation, inboxId });
+  await createDelegated(store, { ...withInbox.delegation, bootstrapInboxId });
   const unlocked = await unlockKeystoreAccount({ password: "pw", keystoreStore: store, cryptoProvider: CRYPTO });
-  assert.equal(unlocked.inboxId, inboxId, "the ceremony inbox round-trips through the sealed keystore");
+  assert.equal(unlocked.bootstrapInboxId, bootstrapInboxId, "the ceremony bootstrap inbox round-trips through the sealed keystore");
+  assert.equal(unlocked.inboxId, undefined, "the generically-named field is gone from the unlock result (R3)");
 
-  // A legacy delegated keystore (no inboxId) surfaces null — backward compatible.
+  // R3: the sealed payload carries the honest field name ONLY — never both.
+  const stored = await readStoredPayload({ store, password: "pw" });
+  assert.equal(stored.bootstrapInboxId, bootstrapInboxId);
+  assert.equal(stored.inboxId, undefined, "new envelopes never write the legacy field");
+
+  // A legacy delegated keystore (no inbox at all) surfaces null — backward compatible.
   const legacy = makeDelegation();
   const store2 = makeStore("inbox-legacy");
   await createDelegated(store2, legacy.delegation);
   const unlocked2 = await unlockKeystoreAccount({ password: "pw", keystoreStore: store2, cryptoProvider: CRYPTO });
-  assert.equal(unlocked2.inboxId, null, "a delegated keystore without an inbox surfaces null");
+  assert.equal(unlocked2.bootstrapInboxId, null, "a delegated keystore without an inbox surfaces null");
 
   // A noncanonical inbox is rejected at create (fail loud).
   const bad = makeDelegation();
   await assert.rejects(
-    () => createDelegated(makeStore("inbox-bad"), { ...bad.delegation, inboxId: "not-an-inbox" }),
+    () => createDelegated(makeStore("inbox-bad"), { ...bad.delegation, bootstrapInboxId: "not-an-inbox" }),
     /canonical/,
+  );
+
+  // R3: the create API REFUSES the legacy spelling — silently sealing an
+  // envelope with no bootstrap inbox while the caller believed it persisted
+  // one is exactly the drift this guard exists for.
+  const legacyParam = makeDelegation();
+  await assert.rejects(
+    () => createDelegated(makeStore("inbox-legacy-param"), { ...legacyParam.delegation, inboxId: bootstrapInboxId }),
+    /bootstrapInboxId \(R3\)/,
+  );
+});
+
+test("R3: a LEGACY stored envelope's inboxId deserializes AS bootstrapInboxId; both-names-different is refused", async () => {
+  const bootstrapInboxId = "inbox:" + "c".repeat(24);
+  const { delegation } = makeDelegation();
+  const store = makeStore("inbox-migrate");
+  await createDelegated(store, { ...delegation, bootstrapInboxId });
+
+  // Rewrite the sealed payload to the LEGACY shape (generic inboxId) — the
+  // parse path must adopt it under the honest name without rewriting bytes.
+  const payload = await readStoredPayload({ store, password: "pw" });
+  const legacyShaped = { ...payload, inboxId: payload.bootstrapInboxId };
+  delete legacyShaped.bootstrapInboxId;
+  await writeRawKeystore({ store, password: "pw", payload: legacyShaped });
+  const unlocked = await unlockKeystoreAccount({ password: "pw", keystoreStore: store, cryptoProvider: CRYPTO });
+  assert.equal(unlocked.bootstrapInboxId, bootstrapInboxId, "legacy inboxId deserializes as bootstrapInboxId");
+
+  // Both names with DIFFERENT values is ambiguous authorship — fail loud.
+  const conflicted = { ...payload, inboxId: "inbox:" + "d".repeat(24) };
+  await writeRawKeystore({ store, password: "pw", payload: conflicted });
+  await assert.rejects(
+    () => unlockKeystoreAccount({ password: "pw", keystoreStore: store, cryptoProvider: CRYPTO }),
+    /refusing to guess/,
   );
 });
 

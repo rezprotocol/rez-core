@@ -21,3 +21,16 @@
  * 2 — prior baseline.
  */
 export const CONTRACT_VERSION = 4;
+
+/**
+ * SESSION_AUTH_V5: the ENUMERATED set of contract versions a node accepts.
+ *
+ * This is a server acceptance policy, NOT a negotiation surface — there is no
+ * "highest mutually supported" bidding, no ranges, and a client never
+ * downgrades because of anything in this list. A v5 session is one whose
+ * session.hello carried contractVersion 5 with an explicit authMode
+ * (plans/SESSION_AUTH_V5_SLICE2_PLAN.md §2A.1); v4 keeps the legacy shape and
+ * semantics unchanged. CONTRACT_VERSION above stays the default a v4 client
+ * speaks and what shipped records assert.
+ */
+export const SUPPORTED_CONTRACT_VERSIONS = Object.freeze([4, 5]);

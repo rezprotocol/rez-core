@@ -71,6 +71,21 @@ export class DepositPolicyV1 extends RSerializable {
     return nowMs >= this.expiresAtMs;
   }
 
+  /**
+   * Does evaluating this policy require knowing WHO the depositor is?
+   * True iff either identity-bearing list is non-empty — BOTH lists count:
+   * a blocklist needs identity to match against exactly as much as an
+   * allowlist does (SESSION_AUTH_V5 slice 3; do not "optimize" this to
+   * allowlists only). Pure: this record knows what its own rules need; which
+   * principal is presenting a deposit — and the operational verdict — is the
+   * node's decision, not this object's.
+   * @returns {boolean}
+   */
+  requiresDepositorIdentity() {
+    return this.blockedDepositorPubkeys.length > 0
+      || this.allowedDepositorPubkeys.length > 0;
+  }
+
   /** @param {string} depositorPubkeyB64 */
   isDepositorBlocked(depositorPubkeyB64) {
     if (typeof depositorPubkeyB64 !== "string" || depositorPubkeyB64.length === 0) {
