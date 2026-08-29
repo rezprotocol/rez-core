@@ -14,6 +14,10 @@ export class MemoryKeyValueStore extends KeyValueStore {
     return this.store.get(key);
   }
 
+  getStrict(key) {
+    return this.get(key);
+  }
+
   delete(key) {
     return this.store.delete(key);
   }

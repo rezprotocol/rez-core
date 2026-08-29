@@ -20,3 +20,10 @@ test("MemoryKeyValueStore keys filters by prefix", () => {
 
   assert.deepEqual(store.keys("a/"), ["a/1", "a/2"]);
 });
+
+test("MemoryKeyValueStore getStrict preserves absent versus present values", () => {
+  const store = new MemoryKeyValueStore();
+  store.set("present", null);
+  assert.equal(store.getStrict("present"), null);
+  assert.equal(store.getStrict("absent"), undefined);
+});

@@ -9,6 +9,10 @@ export class KeyValueStore extends RAbstract {
     return this.abstract("get");
   }
 
+  getStrict(_key) {
+    return this.abstract("getStrict");
+  }
+
   delete(_key) {
     return this.abstract("delete");
   }
