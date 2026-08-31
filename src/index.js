@@ -12,6 +12,7 @@ export * from "./keystore/index.js";
 export * from "./packets/index.js";
 export { canonicalize, canonicalJSONStringify } from "./util/canonicalize.js";
 export * from "./util/bytes.js";
+export * from "./util/canonicalBase64.js";
 export { concatBytes } from "./crypto/util/bytes.js";
 export { objectToBytes, bytesToObject } from "./util/jsonBytes.js";
 export * from "./util/base32.js";

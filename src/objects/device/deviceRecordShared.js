@@ -1,4 +1,7 @@
-import { base64ToBytes, bytesToBase64, bytesToHex } from "../../util/bytes.js";
+import { base64ToBytes, bytesToHex } from "../../util/bytes.js";
+import { CANONICAL_B64, requireCanonicalB64 } from "../../util/canonicalBase64.js";
+
+export { CANONICAL_B64, requireCanonicalB64 };
 
 /**
  * Shared validation primitives for the S2.5 device-record family
@@ -14,8 +17,6 @@ import { base64ToBytes, bytesToBase64, bytesToHex } from "../../util/bytes.js";
 // masquerading as a device/account identity key.
 export const ED25519_SPKI_PREFIX_HEX = "302a300506032b6570032100";
 export const ED25519_SPKI_LEN = 44;
-export const CANONICAL_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
-
 export function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -26,28 +27,6 @@ export function isFiniteNumber(value) {
  * unused trailing bits) which would hash differently than the bytes they decode
  * to. Returns the validated string. `length` (bytes) is enforced when given.
  */
-export function requireCanonicalB64(value, label, { length = null } = {}) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(label + " must be a non-empty canonical base64 string");
-  }
-  if (!CANONICAL_B64.test(value)) {
-    throw new Error(label + " must be canonical standard base64 (no whitespace)");
-  }
-  let bytes;
-  try {
-    bytes = base64ToBytes(value);
-  } catch (err) {
-    throw new Error(label + " is not decodable base64: " + (err && err.message ? err.message : "unknown"));
-  }
-  if (bytesToBase64(bytes) !== value) {
-    throw new Error(label + " must be canonical base64 (round-trip mismatch)");
-  }
-  if (length != null && bytes.length !== length) {
-    throw new Error(label + " must decode to " + length + " bytes, got " + bytes.length);
-  }
-  return value;
-}
-
 /**
  * Require a canonical base64 of a 44-byte Ed25519 SPKI DER public key — the exact
  * encoding the SDK signer/verifier and the rez-node verifier share. Any other
