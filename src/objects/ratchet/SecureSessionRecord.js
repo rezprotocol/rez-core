@@ -9,7 +9,7 @@ function isBytes(value) {
 /**
  * Validated in-memory record for a Double Ratchet session.
  *
- * Every session stored in MemorySessionManager / PersistentSessionManager
+ * Every session stored in MemorySessionManager
  * MUST be a SecureSessionRecord. This guarantees shape correctness at
  * construction rather than hoping every consumer checks manually.
  */

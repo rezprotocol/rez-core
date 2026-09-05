@@ -286,6 +286,10 @@ test("CapabilityValidator — validateChain enforces presenter matches leaf gran
     privateKeyBytes: alice.privateKey,
   });
 
+  for (const presenterPublicKeyB64 of [null, undefined, ""]) {
+    assert.equal((await validator.validateChain([root], { presenterPublicKeyB64 })).ok, false);
+  }
+
   // Bob presenting — ok
   const okResult = await validator.validateChain([root], { presenterPublicKeyB64: bob.publicKeyB64 });
   assert.ok(okResult.ok, okResult.reason);

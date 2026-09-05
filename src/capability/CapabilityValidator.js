@@ -125,8 +125,6 @@ export class CapabilityValidator {
 
     const leaf = capabilities[capabilities.length - 1];
     if (leaf.granteePublicKeyB64 != null
-      && typeof presenterPublicKeyB64 === "string"
-      && presenterPublicKeyB64.length > 0
       && leaf.granteePublicKeyB64 !== presenterPublicKeyB64) {
       return {
         ok: false,
