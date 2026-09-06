@@ -536,6 +536,9 @@ function createPeerLinkStorage(keyValueStore) {
 }
 
 export class MemoryStorageProvider extends StorageProvider {
+  #runtimeOwner = null;
+  #runtimeEpoch = 0;
+
   constructor() {
     super();
     this.objectStore = new MemoryObjectStore();
@@ -558,5 +561,30 @@ export class MemoryStorageProvider extends StorageProvider {
 
   getPeerLinkStorage() {
     return this.peerLinkStorage;
+  }
+
+  async acquireRuntimeOwnership({ namespace = "sdk-delivery" } = {}) {
+    if (this.#runtimeOwner !== null) {
+      const err = new Error("delivery runtime already active for " + namespace);
+      err.code = "DELIVERY_RUNTIME_ALREADY_ACTIVE";
+      throw err;
+    }
+    const owner = {};
+    this.#runtimeOwner = owner;
+    this.#runtimeEpoch += 1;
+    const runtimeEpoch = this.#runtimeEpoch;
+    return {
+      runtimeEpoch,
+      assertActive: () => {
+        if (this.#runtimeOwner !== owner) {
+          const err = new Error("delivery runtime ownership was lost");
+          err.code = "DELIVERY_RUNTIME_FENCED";
+          throw err;
+        }
+      },
+      release: async () => {
+        if (this.#runtimeOwner === owner) this.#runtimeOwner = null;
+      },
+    };
   }
 }
