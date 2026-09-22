@@ -5,7 +5,11 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "browser": "./src/index.js",
+      "node": "./src/node.js",
+      "default": "./src/index.js"
+    },
     "./src/crypto/bip39.js": "./src/crypto/bip39.js",
     "./src/crypto/bip39Wordlist.js": "./src/crypto/bip39Wordlist.js",
     "./src/crypto/seedDerivation.js": "./src/crypto/seedDerivation.js"

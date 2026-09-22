@@ -3,8 +3,50 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { setImmediate } from "node:timers/promises";
 
 import { FileSystemDataStore } from "../src/storage/fs/FileSystemDataStore.js";
+
+test("FileSystemDataStore — ack pruning cannot race a pending write through another instance", async () => {
+  await withTempStore(async (store, dir) => {
+    const second = new FileSystemDataStore({ basePath: dir });
+    await store.put("mbox/alice/evt/old", "old");
+    const original = fs.writeFile;
+    let resume;
+    let entered;
+    const paused = new Promise((resolve) => { entered = resolve; });
+    const gate = new Promise((resolve) => { resume = resolve; });
+    fs.writeFile = async (target, ...args) => {
+      if (String(target).startsWith(path.join(dir, "mbox/alice/evt/new.json"))) { entered(); await gate; }
+      return original(target, ...args);
+    };
+    let writing;
+    let removing;
+    try {
+      writing = store.put("mbox/alice/evt/new", "new");
+      await paused;
+      let removed = false;
+      removing = second.remove("mbox/alice/evt/old").then(() => { removed = true; });
+      await setImmediate();
+      assert.equal(removed, false, "Pruning must wait for the in-flight write");
+      resume();
+      await Promise.all([writing, removing]);
+      assert.equal(await second.get("mbox/alice/evt/new"), "new");
+    } finally {
+      resume();
+      await Promise.allSettled([writing, removing]);
+      fs.writeFile = original;
+    }
+  });
+});
+
+test("FileSystemDataStore — a rejected mutation does not poison later writes", async () => {
+  await withTempStore(async (store) => {
+    await assert.rejects(store.put("../invalid", "bad"));
+    await store.put("valid", "retained");
+    assert.equal(await store.get("valid"), "retained");
+  });
+});
 
 async function withTempStore(fn) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "rez-fsds-"));

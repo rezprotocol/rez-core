@@ -10,5 +10,4 @@ export { MemoryStorageProvider } from "./memory/MemoryStorageProvider.js";
 export { RSessionStore } from "./sessions/RSessionStore.js";
 export { RDataStore } from "./RDataStore.js";
 export { MemoryDataStore } from "./memory/MemoryDataStore.js";
-export { FileSystemDataStore } from "./fs/FileSystemDataStore.js";
 export * from "./encrypted/index.js";

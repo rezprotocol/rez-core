@@ -7,6 +7,7 @@ export class FileSystemDataStore extends RDataStore {
   static type = "FileSystemDataStore";
 
   #basePath;
+  static #mutations = new Map();
 
   constructor({ basePath }) {
     super();
@@ -59,6 +60,25 @@ export class FileSystemDataStore extends RDataStore {
   }
 
   async put(key, value) {
+    return this.#mutate(() => this.#put(key, value));
+  }
+
+  // Pruning and creation must share one mutation order. Otherwise an ack can
+  // remove the empty directory between another writer's mkdir and writeFile.
+  // Shared by instances in this process; the node remains the filesystem's
+  // single process owner (this is not a cross-process database lock).
+  async #mutate(operation) {
+    const previous = FileSystemDataStore.#mutations.get(this.#basePath) || Promise.resolve();
+    const pending = previous.then(operation);
+    const settled = pending.then(() => undefined, () => undefined);
+    FileSystemDataStore.#mutations.set(this.#basePath, settled);
+    try { return await pending; }
+    finally {
+      if (FileSystemDataStore.#mutations.get(this.#basePath) === settled) FileSystemDataStore.#mutations.delete(this.#basePath);
+    }
+  }
+
+  async #put(key, value) {
     const filePath = this.#keyToPath(key);
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
@@ -129,6 +149,10 @@ export class FileSystemDataStore extends RDataStore {
 
 
   async remove(key) {
+    return this.#mutate(() => this.#remove(key));
+  }
+
+  async #remove(key) {
     const filePath = this.#keyToPath(key);
     try {
       await fs.unlink(filePath);
@@ -151,6 +175,10 @@ export class FileSystemDataStore extends RDataStore {
   }
 
   async clear() {
+    return this.#mutate(() => this.#clear());
+  }
+
+  async #clear() {
     try {
       const entries = await fs.readdir(this.#basePath);
       for (const entry of entries) {
