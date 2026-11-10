@@ -25,7 +25,10 @@ What the local node knows about an outbound deposit's custody:
   addressed in the delivery-transports Phase 1 queue repair):
   - `delivered` means the **entry relay accepted the packet on the socket**
     — it is NOT an inbox-deposit fact.
-  - Cap evictions (per-inbox / global oldest-drop) emit **no** event.
+  - Capacity is refusal-based: a full per-inbox or global queue returns
+    retryable `RESOURCE_LIMIT` for new work. Already accepted packets are
+    never evicted to admit another sender's work. Admission and durable
+    queue mutations are serialized within the owning node process.
   - Frames are not persisted or replayed; a disconnected client misses them.
 
 Custody facts say a carrier holds bytes. They say nothing about the

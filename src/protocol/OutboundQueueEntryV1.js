@@ -1,4 +1,4 @@
-import { RSerializable } from "../base/RSerializable.js";
+import { RRecord } from "../base/RRecord.js";
 import { bytesToBase64, base64ToBytes, isBytes } from "../util/bytes.js";
 
 /**
@@ -10,7 +10,7 @@ import { bytesToBase64, base64ToBytes, isBytes } from "../util/bytes.js";
  *
  * Constructor validates all fields — if you can construct it, it's valid.
  */
-export class OutboundQueueEntryV1 extends RSerializable {
+export class OutboundQueueEntryV1 extends RRecord {
   static type = "OutboundQueueEntryV1";
 
   /**
@@ -34,50 +34,41 @@ export class OutboundQueueEntryV1 extends RSerializable {
     super();
 
     this.assert(
-      typeof queueId === "string" && queueId.length > 0,
-      "OutboundQueueEntryV1 requires non-empty string queueId",
-    );
-    this.assert(
-      typeof deliverInboxId === "string" && deliverInboxId.length > 0,
-      "OutboundQueueEntryV1 requires non-empty string deliverInboxId",
-    );
-    this.assert(
       isBytes(innerBytes) && innerBytes.length > 0,
       "OutboundQueueEntryV1 requires non-empty Uint8Array innerBytes",
     );
-    this.assert(
-      typeof createdAtMs === "number" && createdAtMs > 0,
-      "OutboundQueueEntryV1 requires positive number createdAtMs",
-    );
-    this.assert(
-      typeof attempts === "number" && attempts >= 0,
-      "OutboundQueueEntryV1 requires non-negative number attempts",
-    );
-    this.assert(
-      typeof lastAttemptMs === "number" && lastAttemptMs >= 0,
-      "OutboundQueueEntryV1 requires non-negative number lastAttemptMs",
-    );
-    this.assert(
-      typeof nextRetryMs === "number" && nextRetryMs >= 0,
-      "OutboundQueueEntryV1 requires non-negative number nextRetryMs",
-    );
-
     this.queueId = queueId;
     this.deliverInboxId = deliverInboxId;
-    this.innerBytes = innerBytes;
+    this.innerBytesB64 = bytesToBase64(innerBytes);
     this.createdAtMs = createdAtMs;
     this.attempts = attempts;
     this.lastAttemptMs = lastAttemptMs;
     this.nextRetryMs = nextRetryMs;
     this.receiptInboxId = typeof receiptInboxId === "string" && receiptInboxId.length > 0 ? receiptInboxId : null;
     this.ownerPublicKeyB64 = typeof ownerPublicKeyB64 === "string" && ownerPublicKeyB64.length > 0 ? ownerPublicKeyB64 : null;
+    this._seal();
+  }
+
+  get innerBytes() {
+    return base64ToBytes(this.innerBytesB64);
+  }
+
+  validate() {
+    this.assert(typeof this.queueId === "string" && this.queueId.length > 0, "OutboundQueueEntryV1 requires queueId");
+    this.assert(typeof this.deliverInboxId === "string" && this.deliverInboxId.length > 0, "OutboundQueueEntryV1 requires deliverInboxId");
+    this.assert(typeof this.innerBytesB64 === "string" && this.innerBytesB64.length > 0, "OutboundQueueEntryV1 requires ciphertext");
+    this.assert(Number.isSafeInteger(this.createdAtMs) && this.createdAtMs > 0, "OutboundQueueEntryV1 requires positive integer createdAtMs");
+    for (const field of ["attempts", "lastAttemptMs", "nextRetryMs"]) {
+      this.assert(Number.isSafeInteger(this[field]) && this[field] >= 0, "OutboundQueueEntryV1 requires non-negative integer " + field);
+    }
   }
 
   toJSON() {
+    this._assertSealed();
     return {
       queueId: this.queueId,
       deliverInboxId: this.deliverInboxId,
-      innerBytesB64: bytesToBase64(this.innerBytes),
+      innerBytesB64: this.innerBytesB64,
       createdAtMs: this.createdAtMs,
       attempts: this.attempts,
       lastAttemptMs: this.lastAttemptMs,

@@ -16,9 +16,9 @@ import {
   base64ToBytes,
 } from "../index.js";
 
-function logSecureChannelDebug(event, details = {}) {
+function logSecureChannelDebug(event) {
   try {
-    console.info("[rez][e2ee][secure-channel]", event, details);
+    console.info("[rez][e2ee][secure-channel]", event);
   } catch {
     // ignore logging failures
   }
