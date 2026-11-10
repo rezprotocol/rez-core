@@ -3,10 +3,14 @@ import { FileManifestV1 } from "./FileManifestV1.js";
 
 const VALID_STATES = ["pending", "receiving", "complete", "failed"];
 
+/** Local receive state, not a new wire format. Bound sender/context identify
+ * authenticated resumable sessions; null/null explicitly represents legacy
+ * unbound state. isComplete counts byte receipts only. Consumers must retain
+ * a retryable state until their application projection also commits. */
 export class FileTransferSessionV1 extends RSerializable {
   static type = "FileTransferSessionV1";
 
-  constructor({ transferId, manifest, receivedChunks, state, createdAtMs, updatedAtMs } = {}) {
+  constructor({ transferId, manifest, receivedChunks, state, createdAtMs, updatedAtMs, senderAccountId = null, contextId = null } = {}) {
     super();
 
     this.assert(
@@ -16,6 +20,13 @@ export class FileTransferSessionV1 extends RSerializable {
     this.assert(
       manifest instanceof FileManifestV1,
       "FileTransferSessionV1 requires FileManifestV1 manifest",
+    );
+    this.assert(transferId === manifest.transferId, "FileTransferSessionV1 transferId must match manifest");
+    this.assert(
+      (senderAccountId === null && contextId === null)
+        || (typeof senderAccountId === "string" && senderAccountId.trim().length > 0
+          && typeof contextId === "string" && contextId.trim().length > 0),
+      "FileTransferSessionV1 requires both senderAccountId and contextId, or neither for legacy sessions",
     );
     this.assert(
       Array.isArray(receivedChunks) && receivedChunks.length === manifest.chunkCount,
@@ -46,6 +57,8 @@ export class FileTransferSessionV1 extends RSerializable {
     this.state = state;
     this.createdAtMs = createdAtMs;
     this.updatedAtMs = updatedAtMs;
+    this.senderAccountId = senderAccountId;
+    this.contextId = contextId;
   }
 
   get receivedCount() {
@@ -80,6 +93,8 @@ export class FileTransferSessionV1 extends RSerializable {
       state: allReceived ? "complete" : "receiving",
       createdAtMs: this.createdAtMs,
       updatedAtMs: Date.now(),
+      senderAccountId: this.senderAccountId,
+      contextId: this.contextId,
     });
   }
 
@@ -91,6 +106,8 @@ export class FileTransferSessionV1 extends RSerializable {
       state: this.state,
       createdAtMs: this.createdAtMs,
       updatedAtMs: this.updatedAtMs,
+      senderAccountId: this.senderAccountId,
+      contextId: this.contextId,
     };
   }
 
@@ -105,6 +122,8 @@ export class FileTransferSessionV1 extends RSerializable {
       state: json.state,
       createdAtMs: json.createdAtMs,
       updatedAtMs: json.updatedAtMs,
+      senderAccountId: json.senderAccountId,
+      contextId: json.contextId,
     });
   }
 }
