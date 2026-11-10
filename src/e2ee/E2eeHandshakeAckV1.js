@@ -25,8 +25,11 @@ import { RSerializable } from "../base/RSerializable.js";
  *      binding). The ack's `senderIdentitySigningPubKeyB64` MUST equal it.
  *   3. The ack signature MUST verify against that pubkey over the canonical
  *      `ack` payload.
- *   4. The `ackNonce` MUST match the nonce the acceptor stored when sending
- *      the handshake packet.
+ *   4. Before confirming a pending session, `ackNonce` MUST match a stored
+ *      nonce for the attempt. Retain it until confirmation is durable.
+ *      After confirmation, authenticated replay is an idempotent success:
+ *      check any still-stored nonce, but never reset the session, route,
+ *      display name or lifecycle history. A consumed nonce need not remain.
  *
  * Constructor validates structural shape; signature verification is done
  * separately via `verifyHandshakeEnvelope({ handshake: ack, ... })`.
