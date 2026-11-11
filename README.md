@@ -18,8 +18,10 @@ Cryptographic primitives, wire-protocol encoding, and canonical record schemas f
 ## Install
 
 ```bash
-npm install @rezprotocol/core
+npm install @rezprotocol/core@next
 ```
+
+The current developer version is `0.6.0-rc.14`; pin that version for a reproducible installation. Stable `latest` promotion is separate.
 
 This package has zero runtime dependencies. Crypto uses the platform's built-in `crypto` module (Node) or `crypto.subtle` (browsers).
 
